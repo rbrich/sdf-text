@@ -15,15 +15,25 @@ LEVEL_NAME = {
 }
 
 
+def ipairs(it):
+    """Make new iterator which returns rolling window of pairs from `it`."""
+    it = iter(it)
+    a = next(it)
+    while True:
+        b = next(it)
+        yield a, b
+        a = b
+
+
 def quadratic_bezier(t, p0, p1, p2):
-    tc = 1 - t
     p0, p1, p2 = map(np.array, [p0, p1, p2])
+    tc = 1 - t
     return tc*tc * p0 + 2*tc*t * p1 + t*t * p2
 
 
 def cubic_bezier(t, p0, p1, p2, p3):
-    tc = 1 - t
     p0, p1, p2, p3 = map(np.array, [p0, p1, p2, p3])
+    tc = 1 - t
     return tc*tc*tc * p0 + 3*tc*tc*t * p1 + 3*tc*t*t * p2 + t*t*t * p3
 
 
@@ -41,13 +51,27 @@ def line_distance(p, p0, p1):
 
 
 def quadratic_distance(p, p0, p1, p2):
+    p, p0, p1, p2 = map(np.array, [p, p0, p1, p2])
     # TODO
     return 0, [0,0]
 
 
 def cubic_distance(p, p0, p1, p2, p3):
-    # TODO
-    return 0, [0,0]
+    # Basic numerical solution:
+    # - evaluate set of points on the curve
+    # - compute distance to a line formed from each pair of points
+    p, p0, p1, p2, p3 = map(np.array, [p, p0, p1, p2, p3])
+    smoothness = 30
+    points = [p0] + [cubic_bezier(t / smoothness, p0, p1, p2, p3)
+                     for t in range(1, smoothness)] + [p3]
+    dist_min = None
+    x_neareast = None
+    for a, b in ipairs(points):
+        dist, x = line_distance(p, a, b)
+        if dist_min is None or abs(dist_min) > abs(dist):
+            dist_min = dist
+            x_neareast = x
+    return dist_min, x_neareast
 
 
 class App:
@@ -148,6 +172,7 @@ class App:
         if self.level == 2:
             self.canvas.create_line(points, width=2, fill="white", tag="line")
         else:
+            self.canvas.create_line(points, width=1, fill="black", tag="line")
             func = {3: quadratic_bezier, 4: cubic_bezier}[self.level]
             smoothness = 100
             start = points[0]
