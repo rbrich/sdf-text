@@ -25,16 +25,19 @@ def ipairs(it):
         a = b
 
 
+def solve_cubic(a, b, c, d):
+    """Find real roots of cubic equation:
+
+    a.x^3 + b.x^2 + c.x + d = 0
+
+    """
+    return [r.real for r in np.poly1d([a, b, c, d]).r if r.imag == 0]
+
+
 def quadratic_bezier(t, p0, p1, p2):
     p0, p1, p2 = map(np.array, [p0, p1, p2])
     tc = 1 - t
     return tc*tc*p0 + 2*tc*t*p1 + t*t*p2
-
-
-def quadratic_derivate(t, p0, p1, p2):
-    p0, p1, p2 = map(np.array, [p0, p1, p2])
-    tc = 1 - t
-    return 2*tc*(p1 - p0) + 2*t*(p2 - p1)
 
 
 def cubic_bezier(t, p0, p1, p2, p3):
@@ -43,72 +46,27 @@ def cubic_bezier(t, p0, p1, p2, p3):
     return tc*tc*tc*p0 + 3*tc*tc*t*p1 + 3*tc*t*t*p2 + t*t*t*p3
 
 
+def quadratic_derivate(t, p0, p1, p2):
+    p0, p1, p2 = map(np.array, [p0, p1, p2])
+    tc = 1 - t
+    return 2*tc*(p1 - p0) + 2*t*(p2 - p1)
+
+
 def line_distance(p, p0, p1):
-    p0, p1, p = map(np.array, [p0, p1, p])
-    a = p - p0
-    b = p1 - p0
-    t = a.dot(b) / b.dot(b)
+    p, p0, p1 = map(np.array, [p, p0, p1])
+    m = p - p0
+    a = p1 - p0
+    t = m.dot(a) / a.dot(a)
     t = min(max(t, 0), 1)
-    x = p0 + t * b
-    # http://stackoverflow.com/a/1560510/6013024
-    side = la.det([b, a])
+    x = p0 + t * a
+    # Determinant of this 2x2 matrix gives us orientation
+    # of the two vectors. When clockwise rotation from p-p0 to p1-p0
+    # takes less than 180°, the sign is positive, otherwise negative.
+    # Note that in 3D, this is how we compute Z component of cross product
+    # of two vectors.
+    side = la.det([m, a])
     dist = math.copysign(la.norm(x - p), side)
     return dist, x
-
-
-def solve_quadratic(a, b, c):
-    """Find real roots of quadratic equation:
-
-    a.x^2 + b.x + c = 0
-
-    """
-    D = b*b - 4*a*c
-    if np.isclose(D, 0.0):
-        return [-b/(2*a)]
-    if D < 0:
-        # Imaginary roots
-        return []
-    # D > 0
-    Ds = math.sqrt(D)
-    a2 = 2*a
-    return [(-b + Ds)/a2, (-b - Ds)/a2]
-
-
-def solve_cubic(a, b, c, d):
-    """Find real roots of cubic equation:
-
-    a.x^3 + b.x^2 + c.x + d = 0
-
-    """
-    # using numpy:
-    return [r.real for r in np.poly1d([a, b, c, d]).r if r.imag == 0]
-    # manual solution:
-    if np.isclose(a, 0.0):
-        return solve_quadratic(b, c, d)
-    # normalized form (a => 1.0)
-    b /= a
-    c /= a
-    d /= a
-    # depressed form (t^3 + p.t + q = 0)
-    p = c - b*b / 3
-    q = 2/27 * b*b*b - b*b/3 + d
-    if np.isclose(p, 0.0) and np.isclose(q, 0.0):
-        return [0.0]
-    q2 = q / 2
-    p3 = p / 3
-    D = q2 * q2 + p3 * p3 * p3
-    if np.isclose(D, 0.0):
-        x = math.pow(q2, 1/3)
-        return [-2 * x, x]
-    if D > 0:
-        Ds = math.sqrt(D)
-        return [math.pow(-q2 + Ds, 1/3) + math.pow(-q2 - Ds, 1/3)]
-    # D < 0
-    phi3 = math.acos(-q2 / math.sqrt(abs(p3)**3)) / 3
-    x = 2 * math.sqrt(abs(p3))
-    return [x*math.cos(phi3),
-            -x*math.cos(phi3 - math.pi/3),
-            -x*math.cos(phi3 + math.pi/3)]
 
 
 def quadratic_distance(p, p0, p1, p2):
@@ -122,12 +80,14 @@ def quadratic_distance(p, p0, p1, p2):
                         m.dot(a))
     # Find nearest point
     dist_min = None
-    x_neareast = None
+    x_point = None
+    x_t = None
     for t, x in [(0.0, p0), (1.0, p2)]:
         dist = la.norm(x - p)
         if dist_min is None or dist < dist_min:
             dist_min = dist
-            x_neareast = x
+            x_point = x
+            x_t = t
     for t in roots:
         if t < 0.0 or t > 1.0:
             continue
@@ -135,8 +95,13 @@ def quadratic_distance(p, p0, p1, p2):
         dist = la.norm(x - p)
         if dist_min is None or dist < dist_min:
             dist_min = dist
-            x_neareast = x
-    return dist_min, x_neareast
+            x_point = x
+            x_t = t
+    # Determine sign
+    direction = quadratic_derivate(x_t, p0, p1, p2)
+    side = la.det([p - x_point, direction])
+    dist = math.copysign(dist_min, side)
+    return dist, x_point
 
 
 def cubic_distance(p, p0, p1, p2, p3):
@@ -242,12 +207,12 @@ class App:
 
     def recreate_points(self):
         self.canvas.delete("point")
-        color = "red"  # color for X point
+        colors = ["red", "green", "blue", "blue", None]
+        colors[self.level] = "#909"
         radius = 3
-        for p in self.points[:self.level+1]:
+        for p, color in zip(self.points[:self.level+1], colors):
             coords = (p[0] - radius, p[1] - radius, p[0] + radius, p[1] + radius)
             self.canvas.create_oval(coords, fill=color, outline="white", tag="point")
-            color = "green"  # color for control points
 
     def refresh(self):
         self.canvas.delete("line")
