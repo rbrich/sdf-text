@@ -28,13 +28,19 @@ def ipairs(it):
 def quadratic_bezier(t, p0, p1, p2):
     p0, p1, p2 = map(np.array, [p0, p1, p2])
     tc = 1 - t
-    return tc*tc * p0 + 2*tc*t * p1 + t*t * p2
+    return tc*tc*p0 + 2*tc*t*p1 + t*t*p2
+
+
+def quadratic_derivate(t, p0, p1, p2):
+    p0, p1, p2 = map(np.array, [p0, p1, p2])
+    tc = 1 - t
+    return 2*tc*(p1 - p0) + 2*t*(p2 - p1)
 
 
 def cubic_bezier(t, p0, p1, p2, p3):
     p0, p1, p2, p3 = map(np.array, [p0, p1, p2, p3])
     tc = 1 - t
-    return tc*tc*tc * p0 + 3*tc*tc*t * p1 + 3*tc*t*t * p2 + t*t*t * p3
+    return tc*tc*tc*p0 + 3*tc*tc*t*p1 + 3*tc*t*t*p2 + t*t*t*p3
 
 
 def line_distance(p, p0, p1):
@@ -50,10 +56,87 @@ def line_distance(p, p0, p1):
     return dist, x
 
 
+def solve_quadratic(a, b, c):
+    """Find real roots of quadratic equation:
+
+    a.x^2 + b.x + c = 0
+
+    """
+    D = b*b - 4*a*c
+    if np.isclose(D, 0.0):
+        return [-b/(2*a)]
+    if D < 0:
+        # Imaginary roots
+        return []
+    # D > 0
+    Ds = math.sqrt(D)
+    a2 = 2*a
+    return [(-b + Ds)/a2, (-b - Ds)/a2]
+
+
+def solve_cubic(a, b, c, d):
+    """Find real roots of cubic equation:
+
+    a.x^3 + b.x^2 + c.x + d = 0
+
+    """
+    # using numpy:
+    return [r.real for r in np.poly1d([a, b, c, d]).r if r.imag == 0]
+    # manual solution:
+    if np.isclose(a, 0.0):
+        return solve_quadratic(b, c, d)
+    # normalized form (a => 1.0)
+    b /= a
+    c /= a
+    d /= a
+    # depressed form (t^3 + p.t + q = 0)
+    p = c - b*b / 3
+    q = 2/27 * b*b*b - b*b/3 + d
+    if np.isclose(p, 0.0) and np.isclose(q, 0.0):
+        return [0.0]
+    q2 = q / 2
+    p3 = p / 3
+    D = q2 * q2 + p3 * p3 * p3
+    if np.isclose(D, 0.0):
+        x = math.pow(q2, 1/3)
+        return [-2 * x, x]
+    if D > 0:
+        Ds = math.sqrt(D)
+        return [math.pow(-q2 + Ds, 1/3) + math.pow(-q2 - Ds, 1/3)]
+    # D < 0
+    phi3 = math.acos(-q2 / math.sqrt(abs(p3)**3)) / 3
+    x = 2 * math.sqrt(abs(p3))
+    return [x*math.cos(phi3),
+            -x*math.cos(phi3 - math.pi/3),
+            -x*math.cos(phi3 + math.pi/3)]
+
+
 def quadratic_distance(p, p0, p1, p2):
     p, p0, p1, p2 = map(np.array, [p, p0, p1, p2])
-    # TODO
-    return 0, [0,0]
+    m = p0 - p
+    a = p1 - p0
+    b = p2 - p1 - a
+    roots = solve_cubic(b.dot(b),
+                        3*a.dot(b),
+                        2*a.dot(a) + m.dot(b),
+                        m.dot(a))
+    # Find nearest point
+    dist_min = None
+    x_neareast = None
+    for t, x in [(0.0, p0), (1.0, p2)]:
+        dist = la.norm(x - p)
+        if dist_min is None or dist < dist_min:
+            dist_min = dist
+            x_neareast = x
+    for t in roots:
+        if t < 0.0 or t > 1.0:
+            continue
+        x = quadratic_bezier(t, p0, p1, p2)
+        dist = la.norm(x - p)
+        if dist_min is None or dist < dist_min:
+            dist_min = dist
+            x_neareast = x
+    return dist_min, x_neareast
 
 
 def cubic_distance(p, p0, p1, p2, p3):
@@ -61,9 +144,9 @@ def cubic_distance(p, p0, p1, p2, p3):
     # - evaluate set of points on the curve
     # - compute distance to a line formed from each pair of points
     p, p0, p1, p2, p3 = map(np.array, [p, p0, p1, p2, p3])
-    smoothness = 30
-    points = [p0] + [cubic_bezier(t / smoothness, p0, p1, p2, p3)
-                     for t in range(1, smoothness)] + [p3]
+    steps = 30
+    points = [p0] + [cubic_bezier(t / steps, p0, p1, p2, p3)
+                     for t in range(1, steps)] + [p3]
     dist_min = None
     x_neareast = None
     for a, b in ipairs(points):
@@ -80,7 +163,7 @@ class App:
         root = tk.Tk()
         self.label_help = tk.Label(root, text="[+/-] change curve level  [LMB] move point  [RMB] move view", justify=tk.LEFT)
         self.label_help.pack()
-        self.canvas = tk.Canvas(root, width=WIDTH, height=HEIGHT, bg="gray")
+        self.canvas = tk.Canvas(root, width=WIDTH, height=HEIGHT, bg="#555")
         self.canvas.pack(fill=tk.BOTH, expand=True)
         self.label_dist = tk.Label(root)
         self.label_dist.pack()
