@@ -4,6 +4,7 @@ import tkinter as tk
 import math
 import numpy as np
 import numpy.linalg as la
+from scipy.optimize import brentq
 
 WIDTH = 500
 HEIGHT = 500
@@ -52,6 +53,12 @@ def quadratic_derivate(t, p0, p1, p2):
     return 2*tc*(p1 - p0) + 2*t*(p2 - p1)
 
 
+def cubic_derivate(t, p0, p1, p2, p3):
+    p0, p1, p2, p3 = map(np.array, [p0, p1, p2, p3])
+    tc = 1 - t
+    return 3*tc*tc*(p1 - p0) + 6*tc*t*(p2 - p1) + 3*t*t*(p3 - p2)
+
+
 def line_distance(p, p0, p1):
     p, p0, p1 = map(np.array, [p, p0, p1])
     m = p - p0
@@ -66,7 +73,7 @@ def line_distance(p, p0, p1):
     # of two vectors.
     side = la.det([m, a])
     dist = math.copysign(la.norm(x - p), side)
-    return dist, x
+    return dist, x, t
 
 
 def quadratic_distance(p, p0, p1, p2):
@@ -101,25 +108,52 @@ def quadratic_distance(p, p0, p1, p2):
     direction = quadratic_derivate(x_t, p0, p1, p2)
     side = la.det([p - x_point, direction])
     dist = math.copysign(dist_min, side)
-    return dist, x_point
+    return dist, x_point, x_t
 
 
 def cubic_distance(p, p0, p1, p2, p3):
-    # Basic numerical solution:
-    # - evaluate set of points on the curve
-    # - compute distance to a line formed from each pair of points
+    """Find distance from a point to cubic bézier curve.
+
+    Input is the query point (P) and points defining the curve (P0, P1, ...).
+    Output is tuple with the distance, nearest point on the curve (X)
+    and function parameter leading to this point (t).
+
+    We're looking for the roots of equation `PX.B'(t)=0`, where `PX = B(t) - P`.
+    PX is a vector pointing towards query point (normal vector)
+    B'(t) is derivative function, which gives tangent vector at point X.
+    Dot product of these two vectors must be zero (vectors are perpendicular).
+
+    """
     p, p0, p1, p2, p3 = map(np.array, [p, p0, p1, p2, p3])
-    steps = 30
-    points = [p0] + [cubic_bezier(t / steps, p0, p1, p2, p3)
-                     for t in range(1, steps)] + [p3]
+    def f(t):
+        return (cubic_bezier(t, p0, p1, p2, p3) - p).dot(cubic_derivate(t, p0, p1, p2, p3))
+    # Partition t to `steps` intervals and solve the equation for each interval
+    steps = 15
+    bounds = [t / steps for t in range(0, steps + 1)]
+    candidate_t = []
+    for a, b in ipairs(bounds):
+        try:
+            t = brentq(f, a, b)
+            candidate_t.append(t)
+        except ValueError:
+            # f(a) and f(b) must have different signs
+            pass
+    candidate_t += [0.0, 1.0]
+    # Find nearest point in the candidates
     dist_min = None
-    x_neareast = None
-    for a, b in ipairs(points):
-        dist, x = line_distance(p, a, b)
-        if dist_min is None or abs(dist_min) > abs(dist):
+    x_point, x_t = None, None
+    for t in candidate_t:
+        x = cubic_bezier(t, p0, p1, p2, p3)
+        dist = la.norm(x - p)
+        if dist_min is None or dist < dist_min:
             dist_min = dist
-            x_neareast = x
-    return dist_min, x_neareast
+            x_point = x
+            x_t = t
+    # Determine sign
+    direction = cubic_derivate(x_t, p0, p1, p2, p3)
+    side = la.det([p - x_point, direction])
+    dist = math.copysign(dist_min, side)
+    return dist, x_point, x_t
 
 
 class App:
@@ -141,6 +175,7 @@ class App:
         root.bind("<KeyPress-plus>", self.on_key_plus)
         root.bind("<KeyPress-KP_Subtract>", self.on_key_minus)
         root.bind("<KeyPress-minus>", self.on_key_minus)
+        root.bind("<KeyPress-d>", self.on_key_dump)
         root.wm_title(string="Segment distance")
 
         self.level = 2
@@ -149,6 +184,7 @@ class App:
                        (WIDTH * 0.5, HEIGHT * 0.8),  # P1
                        (WIDTH * 0.8, HEIGHT * 0.4),  # P2
                        (WIDTH * 0.8, HEIGHT * 0.8)]  # P3
+        self.result = (None, None, None)
         self.recreate_points()
         self.refresh()
 
@@ -170,14 +206,14 @@ class App:
                     self.moving = item
                     return
 
-    def on_left_release(self, event):
+    def on_left_release(self, _event):
         self.moving = None
 
     def on_right_press(self, event):
         self.scrolling = True
         self.canvas.scan_mark(event.x, event.y)
 
-    def on_right_release(self, event):
+    def on_right_release(self, _event):
         self.scrolling = False
 
     def on_move(self, event):
@@ -193,17 +229,25 @@ class App:
         if self.scrolling:
             self.canvas.scan_dragto(event.x, event.y, 1)
 
-    def on_key_plus(self, event):
+    def on_key_plus(self, _event):
         if self.level < 4:
             self.level += 1
             self.recreate_points()
             self.refresh()
 
-    def on_key_minus(self, event):
+    def on_key_minus(self, _event):
         if self.level > 2:
             self.level -= 1
             self.recreate_points()
             self.refresh()
+
+    def on_key_dump(self, _event):
+        """Dump curve parameters to console"""
+        print("Curve level:", self.level)
+        print("Curve points:", self.points[1:self.level+1])
+        print("Query point:", self.points[0])
+        print("Result: dist=%s, X=%s, t=%s" % self.result)
+        print("---")
 
     def recreate_points(self):
         self.canvas.delete("point")
@@ -231,7 +275,8 @@ class App:
 
         px = self.points[0]
         dist_func = {2: line_distance, 3: quadratic_distance, 4: cubic_distance}[self.level]
-        dist, x = dist_func(px, *self.points[1:self.level+1])
+        self.result = dist_func(px, *self.points[1:self.level+1])
+        dist, x, _t = self.result
         self.label_dist.config(text="%s distance: %.2f" % (LEVEL_NAME[self.level], dist))
         self.canvas.create_line(list(x), px, width=2, fill="yellow", dash=(3,5), tag="line")
 
@@ -239,4 +284,5 @@ class App:
         self.canvas.tag_raise("point", "line")
 
 
-App().main()
+if __name__ == '__main__':
+    App().main()

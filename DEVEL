@@ -1,0 +1,18 @@
+References
+----------
+
+Signed distance field font rendering:
+- https://github.com/Chlumsky/msdfgen
+
+Bezier distance:
+- https://en.wikipedia.org/wiki/Bézier_curve
+- http://blog.gludion.com/2009/08/distance-to-quadratic-bezier-curve.html
+- http://stackoverflow.com/questions/6824452/nearest-point-on-a-quadratic-bezier-curve#6824647
+- http://www.tinaja.com/glib/cmindist.pdf
+- http://web.archive.org/web/20161021130752/http://cagd.cs.byu.edu/~557/text/ch17.pdf
+
+Equation solvers:
+- Cubic: https://en.wikipedia.org/wiki/Cubic_function#Cardano.27s_method
+- https://docs.rs/roots/0.0.2/roots/
+- https://prosic.github.io/libprosic/rgsl/index.html
+  - https://github.com/GuillaumeGomez/rust-GSL
