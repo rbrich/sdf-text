@@ -2,17 +2,34 @@ References
 ----------
 
 Signed distance field font rendering:
+- https://en.wikipedia.org/wiki/Signed_distance_function
+- http://www.valvesoftware.com/publications/2007/SIGGRAPH2007_AlphaTestedMagnification.pdf
 - https://github.com/Chlumsky/msdfgen
+  - https://dspace.cvut.cz/bitstream/handle/10467/62770/F8-DP-2015-Chlumsky-Viktor-thesis.pdf
 
-Bezier distance:
+Bézier distance (nearest point on the curve):
 - https://en.wikipedia.org/wiki/Bézier_curve
-- http://blog.gludion.com/2009/08/distance-to-quadratic-bezier-curve.html
-- http://stackoverflow.com/questions/6824452/nearest-point-on-a-quadratic-bezier-curve#6824647
-- http://www.tinaja.com/glib/cmindist.pdf
-- http://web.archive.org/web/20161021130752/http://cagd.cs.byu.edu/~557/text/ch17.pdf
+- Quadratic:
+  - http://blog.gludion.com/2009/08/distance-to-quadratic-bezier-curve.html
+  - http://stackoverflow.com/questions/6824452/nearest-point-on-a-quadratic-bezier-curve#6824647
+- Cubic:
+  - http://www.tinaja.com/glib/cmindist.pdf
+  - http://web.archive.org/web/20161021130752/http://cagd.cs.byu.edu/~557/text/ch17.pdf
+  - Graphic Gems - https://github.com/erich666/GraphicsGems/blob/3c76e97f8b010cdb974249db976c211e39569257/gems/NearestPoint.c
+- http://pomax.github.io/bezierinfo/#projections (brute force)
 
 Equation solvers:
-- Cubic: https://en.wikipedia.org/wiki/Cubic_function#Cardano.27s_method
-- https://docs.rs/roots/0.0.2/roots/
-- https://prosic.github.io/libprosic/rgsl/index.html
+- Cubic equation:
+  - https://en.wikipedia.org/wiki/Cubic_function#Cardano.27s_method
+- For Rust:
+  - https://docs.rs/roots/0.0.2/roots/
+  - https://prosic.github.io/libprosic/rgsl/index.html
   - https://github.com/GuillaumeGomez/rust-GSL
+
+Font rasterization:
+- http://www.antigrain.com/research/font_rasterization/index.html
+- https://medium.com/@raphlinus/inside-the-fastest-font-renderer-in-the-world-75ae5270c445
+
+Spline intersection:
+- http://stackoverflow.com/questions/234261/the-intersection-point-between-a-spline-and-a-line#357569
+- http://cagd.cs.byu.edu/~557/text/ch7.pdf

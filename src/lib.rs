@@ -9,9 +9,11 @@ pub type Point = Point2<f32>;
 pub type Vector = Vector2<f32>;
 
 
-// Distance to a line segment from a point
-// ---------------------------------------
+// Line segment
+// ------------
+// B(t) = p0 + t * (p1 - p0); t = 0..1
 
+// Distance to a line segment from a point
 pub fn line_distance(p: Point, p0: Point, p1: Point) -> f32 {
     let m = p - p0;
     let a = p1 - p0;
@@ -27,9 +29,19 @@ pub fn line_distance(p: Point, p0: Point, p1: Point) -> f32 {
     }
 }
 
+// Intersection between horizontal line at Y and line segment
+pub fn line_intersection(y: f32, p0: Point, p1: Point) -> Option<f32> {
+    if !( p0.y <= y && y < p1.y ) && !( p1.y <= y && y < p0.y ) {
+        return None;
+    }
+    let t = (y - p0.y) / (p1.y - p0.y);
+    Some(p0.x + t * (p1.x - p0.x))
+}
 
-// Distance to quadratic bézier curve from a point
-// -----------------------------------------------
+
+// Quadratic (conic) segment
+// -------------------------
+// B(t) = (1-t)^2 * p0 + 2*(1-t)*t * p1 + t^2 * p2; t = 0..1
 
 fn quadratic_bezier(t: f32, p0: Point, p1: Point, p2: Point) -> Point {
     let tc = 1.0 - t;
@@ -41,6 +53,7 @@ fn quadratic_derivate(t: f32, p0: Point, p1: Point, p2: Point) -> Vector {
     2.0*tc*(p1 - p0) + 2.0*t*(p2 - p1)
 }
 
+// Distance to quadratic bézier curve from a point
 pub fn quadratic_distance(p: Point, p0: Point, p1: Point, p2: Point) -> f32 {
     let m = p0 - p;
     let a = p1 - p0;
@@ -52,11 +65,8 @@ pub fn quadratic_distance(p: Point, p0: Point, p1: Point, p2: Point) -> f32 {
     let a0 = m.dot(a);
     // Find roots of the equation (1 or 3 real roots)
     let mut candidate_t = Vec::<f32>::with_capacity(5);
-    match roots::find_roots_cubic(a3, a2, a1, a0) {
-        roots::Roots::One(t) => candidate_t.extend_from_slice(&t),
-        roots::Roots::Three(t) => candidate_t.extend_from_slice(&t),
-        _ => unreachable!(),
-    }
+    let res = roots::find_roots_cubic(a3, a2, a1, a0);
+    candidate_t.extend_from_slice(res.as_ref());
     // Drop roots outside of curve interval
     candidate_t.retain(|&t| t >= 0.0 && t <= 1.0);
     // Compute point on the curve for each t
@@ -91,9 +101,28 @@ pub fn quadratic_distance(p: Point, p0: Point, p1: Point, p2: Point) -> f32 {
     }
 }
 
+pub fn quadratic_intersection(y: f32, p0: Point, p1: Point, p2: Point) -> (usize, [f32;3]) {
+    let a2 = p0.y - 2.0*p1.y + p2.y;
+    let a1 = -2.0*p0.y + 2.0*p1.y;
+    let a0 = p0.y - y;
+    let mut x_arr = [0f32; 3];
+    let mut x_num = 0usize;
+    for &t in roots::find_roots_quadratic(a2, a1, a0).as_ref() {
+        if t < 0.0 || t > 1.0 {
+            continue;
+        }
+        let tc = 1.0 - t;
+        let x = tc*tc * p0.x + 2.0*tc*t * p1.x + t*t * p2.x;
+        x_arr[x_num] = x;
+        x_num += 1;
+    }
+    (x_num, x_arr)
+}
 
-// Distance to cubic bézier curve from a point
-// -------------------------------------------
+
+// Cubic segment
+// -------------
+// B(t) = (1-t)^3*p0 + 3*(1-t)^2*t*p1 + 3*(1-t)*t^2*p2 + t^3*p3; t = 0..1
 
 fn cubic_bezier(t: f32, p0: Point, p1: Point, p2: Point, p3: Point) -> Point {
     let tc = 1.0 - t;
@@ -108,6 +137,7 @@ fn cubic_derivate(t: f32, p0: Point, p1: Point, p2: Point, p3: Point) -> Vector 
     3.0*tc*tc*(p1 - p0) + 6.0*tc*t*(p2 - p1) + 3.0*t*t*(p3 - p2)
 }
 
+// Distance to quadratic bézier curve from a point
 pub fn cubic_distance(p: Point, p0: Point, p1: Point, p2: Point, p3: Point) -> f32 {
     let f = |t| { (cubic_bezier(t, p0, p1, p2, p3) - p).dot(cubic_derivate(t, p0, p1, p2, p3)) };
     // Find roots of the equation (up to 5 real roots)
@@ -153,6 +183,25 @@ pub fn cubic_distance(p: Point, p0: Point, p1: Point, p2: Point, p3: Point) -> f
     } else {
         dist_min
     }
+}
+
+pub fn cubic_intersection(y: f32, p0: Point, p1: Point, p2: Point, p3: Point) -> (usize, [f32;3]) {
+    let a3 = -p0.y + 3.0*p1.y -3.0*p2.y + p3.y;
+    let a2 = 3.0*p0.y - 6.0*p1.y + 3.0*p2.y;
+    let a1 = -3.0*p0.y + 3.0*p1.y;
+    let a0 = p0.y - y;
+    let mut x_arr = [0f32; 3];
+    let mut x_num = 0usize;
+    for &t in roots::find_roots_cubic(a3, a2, a1, a0).as_ref() {
+        if t < 0.0 || t > 1.0 {
+            continue;
+        }
+        let tc = 1.0 - t;
+        let x = tc*tc*tc * p0.x + 3.0*tc*tc*t * p1.x + 3.0*tc*t*t * p2.x + t*t*t * p3.x;
+        x_arr[x_num] = x;
+        x_num += 1;
+    }
+    (x_num, x_arr)
 }
 
 
