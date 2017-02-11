@@ -1,12 +1,68 @@
-extern crate cgmath;
 extern crate roots;
 
 use std::f32;
-use cgmath::prelude::*;
-use cgmath::{Point2, Vector2};
 
-pub type Point = Point2<f32>;
-pub type Vector = Vector2<f32>;
+#[derive(Copy, Clone, Debug)]
+pub struct Vec2 {
+    pub x: f32,
+    pub y: f32,
+}
+
+impl Vec2 {
+    pub fn new(x: f32, y: f32) -> Self {
+        Vec2 { x: x, y: y}
+    }
+    pub fn dot(self, other: Vec2) -> f32 {
+        self.x * other.x + self.y * other.y
+    }
+    pub fn magnitude2(self) -> f32 {
+        self.dot(self)
+    }
+    pub fn magnitude(self) -> f32 {
+        f32::sqrt(self.magnitude2())
+    }
+}
+
+impl std::ops::Add for Vec2 {
+    type Output = Self;
+    fn add(self, rhs: Self) -> Self {
+        Vec2 { x: self.x + rhs.x, y: self.y + rhs.y }
+    }
+}
+
+impl std::ops::Sub for Vec2 {
+    type Output = Self;
+    fn sub(self, rhs: Self) -> Self {
+        Vec2 { x: self.x - rhs.x, y: self.y - rhs.y }
+    }
+}
+
+impl std::ops::Mul<Vec2> for f32 {
+    type Output = Vec2;
+    fn mul(self, rhs: Vec2) -> Vec2 {
+        Vec2 { x: self * rhs.x, y: self * rhs.y }
+    }
+}
+
+#[derive(Copy, Clone, Debug)]
+pub struct Intersection {
+    pub up: bool,
+    pub x: f32,
+}
+
+impl Intersection {
+    pub fn new(up: bool, x: f32) -> Self {
+        Intersection { up: up, x: x }
+    }
+}
+
+pub fn min(farr: &[f32]) -> f32 {
+    farr.iter().cloned().fold(f32::INFINITY, f32::min)
+}
+
+pub fn max(farr: &[f32]) -> f32 {
+    farr.iter().cloned().fold(f32::NEG_INFINITY, f32::max)
+}
 
 
 // Line segment
@@ -14,28 +70,19 @@ pub type Vector = Vector2<f32>;
 // B(t) = p0 + t * (p1 - p0); t = 0..1
 
 // Distance to a line segment from a point
-pub fn line_distance(p: Point, p0: Point, p1: Point) -> f32 {
+pub fn line_distance(p: Vec2, p0: Vec2, p1: Vec2) -> f32 {
     let m = p - p0;
     let a = p1 - p0;
     let t = (m.dot(a) / a.dot(a))
             .max(0.0).min(1.0);
     let x = p0 + t * a;
-    let side = m.perp_dot(a);
-    let dist = (x - p).magnitude();
-    if side < 0.0 {
-        -dist
-    } else {
-        dist
-    }
+    (x - p).magnitude()
 }
 
 // Intersection between horizontal line at Y and line segment
-pub fn line_intersection(y: f32, p0: Point, p1: Point) -> Option<f32> {
-    if !( p0.y <= y && y < p1.y ) && !( p1.y <= y && y < p0.y ) {
-        return None;
-    }
+pub fn line_intersection(y: f32, p0: Vec2, p1: Vec2) -> Intersection {
     let t = (y - p0.y) / (p1.y - p0.y);
-    Some(p0.x + t * (p1.x - p0.x))
+    Intersection::new(p0.y < p1.y, p0.x + t * (p1.x - p0.x))
 }
 
 
@@ -43,18 +90,18 @@ pub fn line_intersection(y: f32, p0: Point, p1: Point) -> Option<f32> {
 // -------------------------
 // B(t) = (1-t)^2 * p0 + 2*(1-t)*t * p1 + t^2 * p2; t = 0..1
 
-fn quadratic_bezier(t: f32, p0: Point, p1: Point, p2: Point) -> Point {
+fn quadratic_bezier(t: f32, p0: Vec2, p1: Vec2, p2: Vec2) -> Vec2 {
     let tc = 1.0 - t;
-    Point2::from_vec((tc*tc*p0).to_vec() + (2.0*tc*t*p1).to_vec() + (t*t*p2).to_vec())
+    tc*tc*p0 + 2.0*tc*t*p1 + t*t*p2
 }
 
-fn quadratic_derivate(t: f32, p0: Point, p1: Point, p2: Point) -> Vector {
+fn quadratic_derivate(t: f32, p0: Vec2, p1: Vec2, p2: Vec2) -> Vec2 {
     let tc = 1.0 - t;
     2.0*tc*(p1 - p0) + 2.0*t*(p2 - p1)
 }
 
 // Distance to quadratic bézier curve from a point
-pub fn quadratic_distance(p: Point, p0: Point, p1: Point, p2: Point) -> f32 {
+pub fn quadratic_distance(p: Vec2, p0: Vec2, p1: Vec2, p2: Vec2) -> f32 {
     let m = p0 - p;
     let a = p1 - p0;
     let b = p2 - p1 - a;
@@ -64,56 +111,43 @@ pub fn quadratic_distance(p: Point, p0: Point, p1: Point, p2: Point) -> f32 {
     let a1 = 2.0*a.dot(a) + m.dot(b);
     let a0 = m.dot(a);
     // Find roots of the equation (1 or 3 real roots)
-    let mut candidate_t = Vec::<f32>::with_capacity(5);
-    let res = roots::find_roots_cubic(a3, a2, a1, a0);
-    candidate_t.extend_from_slice(res.as_ref());
-    // Drop roots outside of curve interval
-    candidate_t.retain(|&t| t >= 0.0 && t <= 1.0);
-    // Compute point on the curve for each t
-    let mut candidate_x = Vec::<Point>::with_capacity(5);
-    for &t in &candidate_t {
-        candidate_x.push(quadratic_bezier(t, p0, p1, p2));
+    let mut candidates = Vec::<Vec2>::with_capacity(5);
+    for &t in roots::find_roots_cubic(a3, a2, a1, a0).as_ref() {
+        // Drop roots outside of curve interval
+        if t >= 0.0 && t <= 1.0 {
+            // Compute point on the curve for each t
+            candidates.push(quadratic_bezier(t, p0, p1, p2));
+        }
     }
     // Add end points
-    candidate_t.push(0.0); candidate_x.push(p0);
-    candidate_t.push(1.0); candidate_x.push(p2);
+    candidates.push(p0);
+    candidates.push(p2);
     // Find least distance point from candidates
     let mut dist_min = f32::INFINITY;
-    let mut x_point = Point::new(0.0, 0.0);
-    let mut x_t = 0f32;
-    for (t, x) in candidate_t.into_iter().zip(candidate_x.into_iter()) {
+    for x in candidates.into_iter() {
         // Actually, it's distance squared, but that's okay for comparison
         let dist = (x - p).magnitude2();
         if dist < dist_min {
             dist_min = dist;
-            x_point = x;
-            x_t = t;
         }
     }
-    dist_min = dist_min.sqrt();
-    // Determine sign (curve side)
-    let direction = quadratic_derivate(x_t, p0, p1, p2);
-    let side = (p - x_point).perp_dot(direction);
-    if side < 0.0 {
-        -dist_min
-    } else {
-        dist_min
-    }
+    dist_min.sqrt()
 }
 
-pub fn quadratic_intersection(y: f32, p0: Point, p1: Point, p2: Point) -> (usize, [f32;3]) {
+pub fn quadratic_intersection(y: f32, p0: Vec2, p1: Vec2, p2: Vec2) -> (usize, [Intersection;3]) {
     let a2 = p0.y - 2.0*p1.y + p2.y;
     let a1 = -2.0*p0.y + 2.0*p1.y;
     let a0 = p0.y - y;
-    let mut x_arr = [0f32; 3];
+    let mut x_arr = [Intersection::new(true, 0.); 3];
     let mut x_num = 0usize;
     for &t in roots::find_roots_quadratic(a2, a1, a0).as_ref() {
         if t < 0.0 || t > 1.0 {
             continue;
         }
         let tc = 1.0 - t;
-        let x = tc*tc * p0.x + 2.0*tc*t * p1.x + t*t * p2.x;
-        x_arr[x_num] = x;
+        x_arr[x_num].x = tc*tc * p0.x + 2.0*tc*t * p1.x + t*t * p2.x;
+        let direction = quadratic_derivate(t, p0, p1, p2);
+        x_arr[x_num].up = direction.y > 0.0;
         x_num += 1;
     }
     (x_num, x_arr)
@@ -124,81 +158,63 @@ pub fn quadratic_intersection(y: f32, p0: Point, p1: Point, p2: Point) -> (usize
 // -------------
 // B(t) = (1-t)^3*p0 + 3*(1-t)^2*t*p1 + 3*(1-t)*t^2*p2 + t^3*p3; t = 0..1
 
-fn cubic_bezier(t: f32, p0: Point, p1: Point, p2: Point, p3: Point) -> Point {
+fn cubic_bezier(t: f32, p0: Vec2, p1: Vec2, p2: Vec2, p3: Vec2) -> Vec2 {
     let tc = 1.0 - t;
-    Point2::from_vec((tc*tc*tc*p0).to_vec() +
-                     (3.0*tc*tc*t*p1).to_vec() +
-                     (3.0*tc*t*t*p2).to_vec() +
-                     (t*t*t*p3).to_vec())
+    tc*tc*tc*p0 + 3.0*tc*tc*t*p1 + 3.0*tc*t*t*p2 + t*t*t*p3
 }
 
-fn cubic_derivate(t: f32, p0: Point, p1: Point, p2: Point, p3: Point) -> Vector {
+fn cubic_derivate(t: f32, p0: Vec2, p1: Vec2, p2: Vec2, p3: Vec2) -> Vec2 {
     let tc = 1.0 - t;
     3.0*tc*tc*(p1 - p0) + 6.0*tc*t*(p2 - p1) + 3.0*t*t*(p3 - p2)
 }
 
 // Distance to quadratic bézier curve from a point
-pub fn cubic_distance(p: Point, p0: Point, p1: Point, p2: Point, p3: Point) -> f32 {
+pub fn cubic_distance(p: Vec2, p0: Vec2, p1: Vec2, p2: Vec2, p3: Vec2) -> f32 {
     let f = |t| { (cubic_bezier(t, p0, p1, p2, p3) - p).dot(cubic_derivate(t, p0, p1, p2, p3)) };
     // Find roots of the equation (up to 5 real roots)
-    let mut candidate_t = Vec::<f32>::with_capacity(7);
+    let mut candidates = Vec::<Vec2>::with_capacity(7);
     let convergency = roots::SimpleConvergency { eps:2e-5f32, max_iter:100 };
     let steps = 15;
     let mut a = 0.0;
     for t in 1 .. steps + 1 {
         let b = t as f32 / steps as f32;
         match roots::find_root_brent(a, b, &f, &convergency) {
-            Ok(t) => candidate_t.push(t),
+            // Compute point on the curve for each t
+            Ok(t) => candidates.push(cubic_bezier(t, p0, p1, p2, p3)),
             Err(_) => (),
         }
         a = b;
     }
-    // Compute point on the curve for each t
-    let mut candidate_x = Vec::<Point>::with_capacity(7);
-    for &t in &candidate_t {
-        candidate_x.push(cubic_bezier(t, p0, p1, p2, p3));
-    }
     // Add end points
-    candidate_t.push(0.0); candidate_x.push(p0);
-    candidate_t.push(1.0); candidate_x.push(p3);
+    candidates.push(p0);
+    candidates.push(p3);
     // Find least distance point from candidates
     let mut dist_min = f32::INFINITY;
-    let mut x_point = Point::new(0.0, 0.0);
-    let mut x_t = 0f32;
-    for (t, x) in candidate_t.into_iter().zip(candidate_x.into_iter()) {
+    for x in candidates.into_iter() {
         // Actually, it's distance squared, but that's okay for the comparison
         let dist = (x - p).magnitude2();
         if dist < dist_min {
             dist_min = dist;
-            x_point = x;
-            x_t = t;
         }
     }
-    dist_min = dist_min.sqrt();
-    // Determine sign (curve side)
-    let direction = cubic_derivate(x_t, p0, p1, p2, p3);
-    let side = (p - x_point).perp_dot(direction);
-    if side < 0.0 {
-        -dist_min
-    } else {
-        dist_min
-    }
+    dist_min.sqrt()
 }
 
-pub fn cubic_intersection(y: f32, p0: Point, p1: Point, p2: Point, p3: Point) -> (usize, [f32;3]) {
+pub fn cubic_intersection(y: f32, p0: Vec2, p1: Vec2, p2: Vec2, p3: Vec2) -> (usize, [Intersection;3]) {
     let a3 = -p0.y + 3.0*p1.y -3.0*p2.y + p3.y;
     let a2 = 3.0*p0.y - 6.0*p1.y + 3.0*p2.y;
     let a1 = -3.0*p0.y + 3.0*p1.y;
     let a0 = p0.y - y;
-    let mut x_arr = [0f32; 3];
+    let mut x_arr = [Intersection::new(true, 0.); 3];
     let mut x_num = 0usize;
     for &t in roots::find_roots_cubic(a3, a2, a1, a0).as_ref() {
         if t < 0.0 || t > 1.0 {
             continue;
         }
         let tc = 1.0 - t;
-        let x = tc*tc*tc * p0.x + 3.0*tc*tc*t * p1.x + 3.0*tc*t*t * p2.x + t*t*t * p3.x;
-        x_arr[x_num] = x;
+        x_arr[x_num].x = tc*tc*tc * p0.x + 3.0*tc*tc*t * p1.x + 3.0*tc*t*t * p2.x + t*t*t * p3.x;
+        let direction = cubic_derivate(t, p0, p1, p2, p3);
+        x_arr[x_num].up = direction.y > 0.0;
         x_num += 1;
     }
     (x_num, x_arr)

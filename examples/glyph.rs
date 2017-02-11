@@ -16,6 +16,9 @@ use glium::glutin::{Event, ElementState, VirtualKeyCode};
 
 use gl_text::*;
 
+pub fn vec2_from_ft(p: ft::Vector) -> Vec2 {
+    Vec2 { x: p.x as f32 / 64., y: p.y as f32 / 64. }
+}
 
 #[derive(Copy, Clone)]
 struct Vertex {
@@ -75,31 +78,33 @@ fn glyph_to_sdf<'a>(c: char, face: &'a ft::Face) -> glium::texture::RawImage2d<'
     face.load_char(c as usize, ft::face::NO_HINTING).unwrap();
     let outline = face.glyph().outline().unwrap();
     let bbox = face.glyph().get_glyph().unwrap().get_cbox(1);
-    let w = ((bbox.xMax - bbox.xMin) >> 6) + 2;
-    let h = ((bbox.yMax - bbox.yMin) >> 6) + 2;
+    let padding = 1i64;
+    let w = ((bbox.xMax - bbox.xMin) >> 6) + 2*padding;
+    let h = ((bbox.yMax - bbox.yMin) >> 6) + 2*padding;
+    let xmin = (bbox.xMin >> 6) - padding;
+    let ymin = (bbox.yMin >> 6) - padding;
     let mut buffer = Vec::<u8>::with_capacity((w * h) as usize);
-    for yr in (bbox.yMin >> 6) - 1 .. (bbox.yMax >> 6) + 1 {
-        let y = yr as f32 + 0.5;
+    for yr in 0 .. h {
+        let y = (yr + ymin) as f32 + 0.5;
 
         // Find intersection points for the Y line
         // (edge crossings algorithm)
-        let mut intersections = Vec::<f32>::new();
-        let mut left_intersections = 0;
+        let mut intersections = Vec::<Intersection>::new();
         for contour in outline.contours_iter() {
-            let mut p0 = Point::new(contour.start().x as f32 / 64.,
-                                    contour.start().y as f32 / 64.);
+            let mut p0 = vec2_from_ft(*contour.start());
             for curve in contour {
                 match curve {
                     ft::outline::Curve::Line(a) => {
-                        let p1 = Point::new(a.x as f32 / 64., a.y as f32 / 64.);
-                        if let Some(x) = line_intersection(y, p0, p1) {
-                            intersections.push(x);
+                        let p1 = vec2_from_ft(a);
+                        if (y >= p0.y && y < p1.y) || (y >= p1.y && y < p0.y) {
+                            let i = line_intersection(y, p0, p1);
+                            intersections.push(i);
                         }
                         p0 = p1;
                     }
                     ft::outline::Curve::Bezier2(a, b) => {
-                        let p1 = Point::new(a.x as f32 / 64., a.y as f32 / 64.);
-                        let p2 = Point::new(b.x as f32 / 64., b.y as f32 / 64.);
+                        let p1 = vec2_from_ft(a);
+                        let p2 = vec2_from_ft(b);
                         let (x_num, x_arr) = quadratic_intersection(y, p0, p1, p2);
                         for i in 0..x_num {
                             intersections.push(x_arr[i]);
@@ -107,53 +112,70 @@ fn glyph_to_sdf<'a>(c: char, face: &'a ft::Face) -> glium::texture::RawImage2d<'
                         p0 = p2;
                     }
                     ft::outline::Curve::Bezier3(a, b, c) => {
-                        let p1 = Point::new(a.x as f32 / 64., a.y as f32 / 64.);
-                        let p2 = Point::new(b.x as f32 / 64., b.y as f32 / 64.);
-                        let p3 = Point::new(c.x as f32 / 64., c.y as f32 / 64.);
-                        let (x_num, x_arr) = cubic_intersection(y, p0, p1, p2, p3);
-                        for i in 0..x_num {
-                            intersections.push(x_arr[i]);
+                        let p1 = vec2_from_ft(a);
+                        let p2 = vec2_from_ft(b);
+                        let p3 = vec2_from_ft(c);
+                        /*if y >= min(&[p0.y, p1.y, p2.y, p3.y])
+                        && y < max(&[p0.y, p1.y, p2.y, p3.y]) */{
+                            let (x_num, x_arr) = cubic_intersection(y, p0, p1, p2, p3);
+                            for i in 0..x_num {
+                                intersections.push(x_arr[i]);
+                            }
+                            // Include bottom point, if touched
+                            if x_num == 0 && y == p0.y && p0.y < p3.y {
+                                intersections.push(Intersection::new(true, p0.x));
+                            }
+                            if x_num == 0 && y == p3.y && p3.y < p0.y {
+                                intersections.push(Intersection::new(false, p0.x));
+                            }
                         }
                         p0 = p3;
                     }
                 };
             }
         }
-        intersections.sort_by(|a, b| a.partial_cmp(b).unwrap());
+        intersections.sort_by(|a, b| a.x.partial_cmp(&b.x).unwrap());
+        //println!("{} {:?}", y, intersections);
 
         // Find point distance
-        for xr in (bbox.xMin >> 6) - 1 .. (bbox.xMax >> 6) + 1 {
-            let x = xr as f32 + 0.5;
-            let mp = Point::new(x, y);
+        let mut left_intersections = 0;
+        let mut wn = 0i32;
+        for xr in 0 .. w {
+            let x = (xr + xmin) as f32 + 0.5;
+            let mp = Vec2::new(x, y);
             let mut dist_min = f32::INFINITY;
 
             // Is the point inside curve?
-            while intersections.len() > left_intersections && intersections[left_intersections] < x {
+            while intersections.len() > left_intersections && intersections[left_intersections].x < x {
+                if intersections[left_intersections].up {
+                    wn += 1;
+                } else {
+                    wn -= 1;
+                }
                 left_intersections += 1;
             }
-            let inside = left_intersections % 2 == 1;
+            let inside = wn > 0;
 
             for contour in outline.contours_iter() {
-                let mut p0 = Point::new(contour.start().x as f32 / 64.,
-                                        contour.start().y as f32 / 64.);
+                let mut p0 = vec2_from_ft(*contour.start());
                 for curve in contour {
                     let dist;
                     match curve {
                         ft::outline::Curve::Line(a) => {
-                            let p1 = Point::new(a.x as f32 / 64., a.y as f32 / 64.);
+                            let p1 = vec2_from_ft(a);
                             dist = line_distance(mp, p0, p1);
                             p0 = p1;
                         }
                         ft::outline::Curve::Bezier2(a, b) => {
-                            let p1 = Point::new(a.x as f32 / 64., a.y as f32 / 64.);
-                            let p2 = Point::new(b.x as f32 / 64., b.y as f32 / 64.);
+                            let p1 = vec2_from_ft(a);
+                            let p2 = vec2_from_ft(b);
                             dist = quadratic_distance(mp, p0, p1, p2);
                             p0 = p2;
                         }
                         ft::outline::Curve::Bezier3(a, b, c) => {
-                            let p1 = Point::new(a.x as f32 / 64., a.y as f32 / 64.);
-                            let p2 = Point::new(b.x as f32 / 64., b.y as f32 / 64.);
-                            let p3 = Point::new(c.x as f32 / 64., c.y as f32 / 64.);
+                            let p1 = vec2_from_ft(a);
+                            let p2 = vec2_from_ft(b);
+                            let p3 = vec2_from_ft(c);
                             dist = cubic_distance(mp, p0, p1, p2, p3);
                             p0 = p3;
                         }
@@ -247,7 +269,7 @@ fn main() {
 
     // Load a glyph from font
     let library = ft::Library::init().unwrap();
-    let face = library.new_face("assets/GFSDidot.otf", 0).unwrap();
+    let face = library.new_face("assets/FreeSans.ttf", 0).unwrap();
     face.set_pixel_sizes(64, 0).unwrap();
     let face_metrics = face.size_metrics().unwrap();
     let image = glyph_to_sdf('&', &face);
