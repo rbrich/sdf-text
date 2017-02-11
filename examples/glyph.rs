@@ -11,13 +11,14 @@ extern crate freetype as ft;
 extern crate gl_text;
 
 use std::f32;
+use std::time;
 use glium::{glutin, DisplayBuild, Surface};
 use glium::glutin::{Event, ElementState, VirtualKeyCode};
 
 use gl_text::*;
 
-pub fn vec2_from_ft(p: ft::Vector) -> Vec2 {
-    Vec2 { x: p.x as f32 / 64., y: p.y as f32 / 64. }
+pub fn vec2_from_ft(p: ft::Vector, unit: f32) -> Vec2 {
+    Vec2 { x: p.x as f32 / unit, y: p.y as f32 / unit }
 }
 
 #[derive(Copy, Clone)]
@@ -72,30 +73,40 @@ const FRAGMENT_SHADER_SDF: &'static str = r#"
     }
 "#;
 
+const PADDING: u32 = 1;
 
 fn glyph_to_sdf<'a>(c: char, face: &'a ft::Face) -> glium::texture::RawImage2d<'a, u8> {
     // Make SDF texture from the glyph
+    let t_start = time::Instant::now();
+    face.set_pixel_sizes(face.em_size() as u32, 0).unwrap();
     face.load_char(c as usize, ft::face::NO_HINTING).unwrap();
     let outline = face.glyph().outline().unwrap();
-    let bbox = face.glyph().get_glyph().unwrap().get_cbox(1);
-    let padding = 1i64;
-    let w = ((bbox.xMax - bbox.xMin) >> 6) + 2*padding;
-    let h = ((bbox.yMax - bbox.yMin) >> 6) + 2*padding;
-    let xmin = (bbox.xMin >> 6) - padding;
-    let ymin = (bbox.yMin >> 6) - padding;
+    let bbox = face.glyph().get_glyph().unwrap().get_cbox(0);
+    let pxsize = face.em_size() as f32;  // emsize * 64 (26.6 format units)
+    let xmin = (bbox.xMin as f32 / pxsize).round();
+    let ymin = (bbox.yMin as f32 / pxsize).round();
+    let xmax = (bbox.xMax as f32 / pxsize).round();
+    let ymax = (bbox.yMax as f32 / pxsize).round();
+    let w = ((xmax - xmin) + 2.0 * PADDING as f32) as u32;
+    let h = ((ymax - ymin) + 2.0 * PADDING as f32) as u32;
+    let origin = Vec2::new((xmin - PADDING as f32 +0.5),
+                           (ymin - PADDING as f32 +0.5));
     let mut buffer = Vec::<u8>::with_capacity((w * h) as usize);
-    for yr in 0 .. h {
-        let y = (yr + ymin) as f32 + 0.5;
+    // Reversed contour orientation (counter-clockwise filled)
+    let outline_flags = face.glyph().raw().outline.flags;
+    let reverse_fill = (outline_flags & 0x4) == 0x4; // FT_OUTLINE_REVERSE_FILL;
+    for yr in (0..h).rev() {
+        let y = origin.y + yr as f32;
 
         // Find intersection points for the Y line
         // (edge crossings algorithm)
         let mut intersections = Vec::<Intersection>::new();
         for contour in outline.contours_iter() {
-            let mut p0 = vec2_from_ft(*contour.start());
+            let mut p0 = vec2_from_ft(*contour.start(), pxsize);
             for curve in contour {
                 match curve {
                     ft::outline::Curve::Line(a) => {
-                        let p1 = vec2_from_ft(a);
+                        let p1 = vec2_from_ft(a, pxsize);
                         if (y >= p0.y && y < p1.y) || (y >= p1.y && y < p0.y) {
                             let i = line_intersection(y, p0, p1);
                             intersections.push(i);
@@ -103,8 +114,8 @@ fn glyph_to_sdf<'a>(c: char, face: &'a ft::Face) -> glium::texture::RawImage2d<'
                         p0 = p1;
                     }
                     ft::outline::Curve::Bezier2(a, b) => {
-                        let p1 = vec2_from_ft(a);
-                        let p2 = vec2_from_ft(b);
+                        let p1 = vec2_from_ft(a, pxsize);
+                        let p2 = vec2_from_ft(b, pxsize);
                         let (x_num, x_arr) = quadratic_intersection(y, p0, p1, p2);
                         for i in 0..x_num {
                             intersections.push(x_arr[i]);
@@ -112,9 +123,9 @@ fn glyph_to_sdf<'a>(c: char, face: &'a ft::Face) -> glium::texture::RawImage2d<'
                         p0 = p2;
                     }
                     ft::outline::Curve::Bezier3(a, b, c) => {
-                        let p1 = vec2_from_ft(a);
-                        let p2 = vec2_from_ft(b);
-                        let p3 = vec2_from_ft(c);
+                        let p1 = vec2_from_ft(a, pxsize);
+                        let p2 = vec2_from_ft(b, pxsize);
+                        let p3 = vec2_from_ft(c, pxsize);
                         /*if y >= min(&[p0.y, p1.y, p2.y, p3.y])
                         && y < max(&[p0.y, p1.y, p2.y, p3.y]) */{
                             let (x_num, x_arr) = cubic_intersection(y, p0, p1, p2, p3);
@@ -141,12 +152,12 @@ fn glyph_to_sdf<'a>(c: char, face: &'a ft::Face) -> glium::texture::RawImage2d<'
         let mut left_intersections = 0;
         let mut wn = 0i32;
         for xr in 0 .. w {
-            let x = (xr + xmin) as f32 + 0.5;
+            let x = origin.x + xr as f32;
             let mp = Vec2::new(x, y);
             let mut dist_min = f32::INFINITY;
 
             // Is the point inside curve?
-            while intersections.len() > left_intersections && intersections[left_intersections].x < x {
+            while intersections.len() > left_intersections && intersections[left_intersections].x <= x {
                 if intersections[left_intersections].up {
                     wn += 1;
                 } else {
@@ -154,8 +165,8 @@ fn glyph_to_sdf<'a>(c: char, face: &'a ft::Face) -> glium::texture::RawImage2d<'
                 }
                 left_intersections += 1;
             }
-            let inside = wn > 0;
-
+            let inside = if reverse_fill { wn < 0 } else { wn > 0 };
+/*
             for contour in outline.contours_iter() {
                 let mut p0 = vec2_from_ft(*contour.start());
                 for curve in contour {
@@ -200,14 +211,19 @@ fn glyph_to_sdf<'a>(c: char, face: &'a ft::Face) -> glium::texture::RawImage2d<'
             if dist_min < 0. { dist_min = 0.; }
             if dist_min > 255. { dist_min = 255.; }
             buffer.push(dist_min as u8);
-/*
+*/
             if inside {
                 buffer.push(255u8);
             } else {
                 buffer.push(0u8);
-            }*/
+            }
         }
     }
+    face.set_pixel_sizes(64, 0).unwrap();
+    let t_end = time::Instant::now();
+    let d = t_end.duration_since(t_start);
+    println!("Render: size {}x{} in {}s (SDF)",
+             w, h, d.as_secs() as f32 + d.subsec_nanos() as f32 / 1e9);
     glium::texture::RawImage2d {
         data: buffer.into(),
         width: w as u32,
@@ -218,14 +234,34 @@ fn glyph_to_sdf<'a>(c: char, face: &'a ft::Face) -> glium::texture::RawImage2d<'
 
 fn glyph_to_image<'a>(c: char, face: &'a ft::Face) -> glium::texture::RawImage2d<'a, u8> {
     // Make texture from the glyph
-    face.load_char(c as usize, ft::face::RENDER).unwrap();
+    let t_start = time::Instant::now();
+    face.set_pixel_sizes(64, 0).unwrap();
+    face.load_char(c as usize, ft::face::RENDER | ft::face::NO_HINTING | ft::face::MONOCHROME).unwrap();
     let bitmap = face.glyph().bitmap();
-    assert_eq!(bitmap.pixel_mode().unwrap(), ft::bitmap::PixelMode::Gray);
-    let buffer = Vec::from(bitmap.buffer());
+    assert_eq!(bitmap.pixel_mode().unwrap(), ft::bitmap::PixelMode::Mono);
+    assert!(bitmap.pitch() > 0);
+    let w = bitmap.width() as u32 + 2*PADDING;
+    let h = bitmap.rows() as u32 + 2*PADDING;
+    let mut buffer = Vec::<u8>::with_capacity((w * h) as usize);
+    for y in 0..h {
+        for x in 0..w {
+            if x >= PADDING && y >= PADDING && x < w - PADDING && y < h - PADDING {
+                let i = (y - PADDING) * bitmap.pitch() as u32 + ((x - PADDING) >> 3);
+                let b = bitmap.buffer()[i as usize] << ((x - PADDING) % 8);
+                buffer.push((b & 0x80) / 128 * 255);
+            } else {
+                buffer.push(0);
+            }
+        }
+    }
+    let t_end = time::Instant::now();
+    let d = t_end.duration_since(t_start);
+    println!("Render: size {}x{} in {}s (FreeType)",
+             w, h, d.as_secs() as f32 + d.subsec_nanos() as f32 / 1e9);
     glium::texture::RawImage2d {
         data: buffer.into(),
-        width: bitmap.width() as u32,
-        height: bitmap.rows() as u32,
+        width: w,
+        height: h,
         format: glium::texture::ClientFormat::U8,
     }
 }
@@ -236,10 +272,10 @@ fn main() {
         .build_glium().unwrap();
 
     // Prepare quad
-    let vertex1 = Vertex { position: [ -0.5, -0.5], tex_coords: [0.0, 0.0] };
-    let vertex2 = Vertex { position: [  0.5, -0.5], tex_coords: [1.0, 0.0] };
-    let vertex3 = Vertex { position: [ -0.5,  0.5], tex_coords: [0.0, 1.0] };
-    let vertex4 = Vertex { position: [  0.5,  0.5], tex_coords: [1.0, 1.0] };
+    let vertex1 = Vertex { position: [ -0.5, -0.5], tex_coords: [0.0, 1.0] };
+    let vertex2 = Vertex { position: [  0.5, -0.5], tex_coords: [1.0, 1.0] };
+    let vertex3 = Vertex { position: [ -0.5,  0.5], tex_coords: [0.0, 0.0] };
+    let vertex4 = Vertex { position: [  0.5,  0.5], tex_coords: [1.0, 0.0] };
     let quad = vec![vertex1, vertex2, vertex3, vertex4];
     let quad_buffer = glium::VertexBuffer::new(&display, &quad).unwrap();
     let quad_indices = glium::index::NoIndices(glium::index::PrimitiveType::TriangleStrip);
@@ -261,7 +297,7 @@ fn main() {
         },
         Err(other) => panic!(other),
     };
-    let mut program = &program_direct;
+    let mut program = &program_sdf;
     let params = glium::DrawParameters {
         backface_culling: glium::draw_parameters::BackfaceCullingMode::CullClockwise,
         .. Default::default()
@@ -269,13 +305,17 @@ fn main() {
 
     // Load a glyph from font
     let library = ft::Library::init().unwrap();
-    let face = library.new_face("assets/FreeSans.ttf", 0).unwrap();
+    //let face = library.new_face("assets/FreeSans.ttf", 0).unwrap();
+    let face = library.new_face("assets/GFSDidot.otf", 0).unwrap();
     face.set_pixel_sizes(64, 0).unwrap();
     let face_metrics = face.size_metrics().unwrap();
-    let image = glyph_to_sdf('&', &face);
+    let mut glyph_char = 'd';
+    let image = glyph_to_sdf(glyph_char, &face);
+    let mut image_w = image.width;
+    let mut image_h = image.height;
     let mut texture = glium::texture::Texture2d::new(&display, image).unwrap();
-    let mut magnify_filter = glium::uniforms::MagnifySamplerFilter::Nearest;
-
+    let mut magnify_filter = glium::uniforms::MagnifySamplerFilter::Linear;
+    let mut sdf = true;
     loop {
         // Draw frame
         {
@@ -285,8 +325,8 @@ fn main() {
             let (width, height) = target.get_dimensions();
             let aspect_ratio = width as f32 / height as f32;
             let face_height = face_metrics.ascender - face_metrics.descender;
-            let image_width = face.glyph().metrics().width as f32 / face_height as f32;
-            let image_height = face.glyph().metrics().height as f32 / face_height as f32;
+            let image_width = image_w as f32 / (face_height as f32 / 64.);
+            let image_height = image_h as f32 / (face_height as f32 / 64.);
             let zoom = 2.0;
             let projection = [
                 [zoom * image_width / aspect_ratio, 0.0, 0.0, 0.0],
@@ -322,21 +362,36 @@ fn main() {
                 Event::KeyboardInput(ElementState::Pressed, _, Some(VirtualKeyCode::Escape)) => return,
                 Event::KeyboardInput(ElementState::Pressed, _, Some(VirtualKeyCode::F1)) => {
                     if magnify_filter == glium::uniforms::MagnifySamplerFilter::Nearest {
+                        println!("Magnify filter: Linear");
                         magnify_filter = glium::uniforms::MagnifySamplerFilter::Linear;
                     } else {
+                        println!("Magnify filter: Nearest");
                         magnify_filter = glium::uniforms::MagnifySamplerFilter::Nearest;
                     }
                 },
                 Event::KeyboardInput(ElementState::Pressed, _, Some(VirtualKeyCode::F2)) => {
                     if program as *const _ == &program_direct as *const _ {
+                        println!("Shader: SDF");
                         program = &program_sdf;
                     } else {
+                        println!("Shader: Direct");
                         program = &program_direct;
                     }
                 },
+                Event::KeyboardInput(ElementState::Pressed, _, Some(VirtualKeyCode::F3)) => {
+                    sdf = !sdf;
+                    let image = if sdf {
+                        glyph_to_sdf(glyph_char, &face)
+                    } else {
+                        glyph_to_image(glyph_char, &face)
+                    };
+                    image_w = image.width;
+                    image_h = image.height;
+                    texture = glium::texture::Texture2d::new(&display, image).unwrap();
+                }
                 Event::KeyboardInput(ElementState::Pressed, _, Some(key)) => {
                     let key = key as u8;
-                    let c =
+                    glyph_char =
                         if key>= VirtualKeyCode::Key1 as u8 && key <= VirtualKeyCode::Key9 as u8 {
                             ('1' as u8 + (key - VirtualKeyCode::Key1 as u8)) as char
                         } else if key == VirtualKeyCode::Key0 as u8 {
@@ -346,7 +401,13 @@ fn main() {
                         } else {
                             '&'
                         };
-                    let image = glyph_to_sdf(c, &face);
+                    let image = if sdf {
+                        glyph_to_sdf(glyph_char, &face)
+                    } else {
+                        glyph_to_image(glyph_char, &face)
+                    };
+                    image_w = image.width;
+                    image_h = image.height;
                     texture = glium::texture::Texture2d::new(&display, image).unwrap();
                 },
                 _ => (),

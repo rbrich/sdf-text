@@ -208,12 +208,13 @@ pub fn cubic_intersection(y: f32, p0: Vec2, p1: Vec2, p2: Vec2, p3: Vec2) -> (us
     let mut x_arr = [Intersection::new(true, 0.); 3];
     let mut x_num = 0usize;
     for &t in roots::find_roots_cubic(a3, a2, a1, a0).as_ref() {
-        if t < 0.0 || t > 1.0 {
+        if !t.is_finite() || t < 0.0 || t > 1.0 {
             continue;
         }
         let tc = 1.0 - t;
-        x_arr[x_num].x = tc*tc*tc * p0.x + 3.0*tc*tc*t * p1.x + 3.0*tc*t*t * p2.x + t*t*t * p3.x;
+        let x = tc*tc*tc * p0.x + 3.0*tc*tc*t * p1.x + 3.0*tc*t*t * p2.x + t*t*t * p3.x;
         let direction = cubic_derivate(t, p0, p1, p2, p3);
+        x_arr[x_num].x = x;
         x_arr[x_num].up = direction.y > 0.0;
         x_num += 1;
     }
