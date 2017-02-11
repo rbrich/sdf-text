@@ -66,10 +66,15 @@ const FRAGMENT_SHADER_SDF: &'static str = r#"
 
     uniform sampler2D tex;
 
+    const vec3 c_inside = vec3(1.0, 1.0, 1.0);
+    const vec3 c_outline = vec3(0.6, 0.6, 0.0);
+    const vec3 c_outside = vec3(0.0, 0.0, 0.0);
+
     void main() {
         float w = texture(tex, v_tex_coords).r;
-        w = smoothstep(0.499, 0.501, w);
-        color = vec4(w, w, w, 1.0);
+        vec3 c_mixed = mix(c_outline, c_inside, smoothstep(0.59, 0.60, w));
+        float alpha = smoothstep(0.50, 0.51, w);
+        color = vec4(mix(c_outside, c_mixed, alpha), 1.0);
     }
 "#;
 
@@ -95,61 +100,45 @@ fn glyph_to_sdf<'a>(c: char, face: &'a ft::Face) -> glium::texture::RawImage2d<'
     // Reversed contour orientation (counter-clockwise filled)
     let outline_flags = face.glyph().raw().outline.flags;
     let reverse_fill = (outline_flags & 0x4) == 0x4; // FT_OUTLINE_REVERSE_FILL;
+
+    // Find intersection points for the scan line
+    // (edge crossings algorithm)
+    let mut rasterizer = Rasterizer::new(h as usize, origin.y);
+    for contour in outline.contours_iter() {
+        let mut p0 = vec2_from_ft(*contour.start(), pxsize);
+        for curve in contour {
+            match curve {
+                ft::outline::Curve::Line(a) => {
+                    let p1 = vec2_from_ft(a, pxsize);
+                    rasterizer.push_line(p0, p1);
+                    p0 = p1;
+                }
+                ft::outline::Curve::Bezier2(a, b) => {
+                    let p1 = vec2_from_ft(a, pxsize);
+                    let p2 = vec2_from_ft(b, pxsize);
+                    rasterizer.push_bezier2(p0, p1, p2);
+                    p0 = p2;
+                }
+                ft::outline::Curve::Bezier3(a, b, c) => {
+                    let p1 = vec2_from_ft(a, pxsize);
+                    let p2 = vec2_from_ft(b, pxsize);
+                    let p3 = vec2_from_ft(c, pxsize);
+                    rasterizer.push_bezier3(p0, p1, p1, p2);
+                    p0 = p3;
+                }
+            };
+        }
+    }
+
     for yr in (0..h).rev() {
         let y = origin.y + yr as f32;
 
-        // Find intersection points for the Y line
-        // (edge crossings algorithm)
-        let mut intersections = Vec::<Intersection>::new();
-        for contour in outline.contours_iter() {
-            let mut p0 = vec2_from_ft(*contour.start(), pxsize);
-            for curve in contour {
-                match curve {
-                    ft::outline::Curve::Line(a) => {
-                        let p1 = vec2_from_ft(a, pxsize);
-                        if (y >= p0.y && y < p1.y) || (y >= p1.y && y < p0.y) {
-                            let i = line_intersection(y, p0, p1);
-                            intersections.push(i);
-                        }
-                        p0 = p1;
-                    }
-                    ft::outline::Curve::Bezier2(a, b) => {
-                        let p1 = vec2_from_ft(a, pxsize);
-                        let p2 = vec2_from_ft(b, pxsize);
-                        let (x_num, x_arr) = quadratic_intersection(y, p0, p1, p2);
-                        for i in 0..x_num {
-                            intersections.push(x_arr[i]);
-                        }
-                        p0 = p2;
-                    }
-                    ft::outline::Curve::Bezier3(a, b, c) => {
-                        let p1 = vec2_from_ft(a, pxsize);
-                        let p2 = vec2_from_ft(b, pxsize);
-                        let p3 = vec2_from_ft(c, pxsize);
-                        /*if y >= min(&[p0.y, p1.y, p2.y, p3.y])
-                        && y < max(&[p0.y, p1.y, p2.y, p3.y]) */{
-                            let (x_num, x_arr) = cubic_intersection(y, p0, p1, p2, p3);
-                            for i in 0..x_num {
-                                intersections.push(x_arr[i]);
-                            }
-                            // Include bottom point, if touched
-                            if x_num == 0 && y == p0.y && p0.y < p3.y {
-                                intersections.push(Intersection::new(true, p0.x));
-                            }
-                            if x_num == 0 && y == p3.y && p3.y < p0.y {
-                                intersections.push(Intersection::new(false, p0.x));
-                            }
-                        }
-                        p0 = p3;
-                    }
-                };
-            }
-        }
-        intersections.sort_by(|a, b| a.x.partial_cmp(&b.x).unwrap());
-        //println!("{} {:?}", y, intersections);
+        let ref mut crossings = rasterizer.scanlines[yr as usize].crossings;
+        crossings.sort_by(|a, b| a.x.partial_cmp(&b.x).unwrap());
+        //println!("{} {:?}", y, crossings);
 
         // Find point distance
-        let mut left_intersections = 0;
+        let mut crossings_idx = 0;
         let mut wn = 0i32;
         for xr in 0 .. w {
             let x = origin.x + xr as f32;
@@ -157,42 +146,38 @@ fn glyph_to_sdf<'a>(c: char, face: &'a ft::Face) -> glium::texture::RawImage2d<'
             let mut dist_min = f32::INFINITY;
 
             // Is the point inside curve?
-            while intersections.len() > left_intersections && intersections[left_intersections].x <= x {
-                if intersections[left_intersections].up {
-                    wn += 1;
-                } else {
-                    wn -= 1;
-                }
-                left_intersections += 1;
+            while crossings.len() > crossings_idx && crossings[crossings_idx].x <= x {
+                wn += crossings[crossings_idx].dir as i32;
+                crossings_idx += 1;
             }
             let inside = if reverse_fill { wn < 0 } else { wn > 0 };
-/*
+
             for contour in outline.contours_iter() {
-                let mut p0 = vec2_from_ft(*contour.start());
+                let mut p0 = vec2_from_ft(*contour.start(), pxsize);
                 for curve in contour {
                     let dist;
                     match curve {
                         ft::outline::Curve::Line(a) => {
-                            let p1 = vec2_from_ft(a);
+                            let p1 = vec2_from_ft(a, pxsize);
                             dist = line_distance(mp, p0, p1);
                             p0 = p1;
                         }
                         ft::outline::Curve::Bezier2(a, b) => {
-                            let p1 = vec2_from_ft(a);
-                            let p2 = vec2_from_ft(b);
+                            let p1 = vec2_from_ft(a, pxsize);
+                            let p2 = vec2_from_ft(b, pxsize);
                             dist = quadratic_distance(mp, p0, p1, p2);
                             p0 = p2;
                         }
                         ft::outline::Curve::Bezier3(a, b, c) => {
-                            let p1 = vec2_from_ft(a);
-                            let p2 = vec2_from_ft(b);
-                            let p3 = vec2_from_ft(c);
+                            let p1 = vec2_from_ft(a, pxsize);
+                            let p2 = vec2_from_ft(b, pxsize);
+                            let p3 = vec2_from_ft(c, pxsize);
                             dist = cubic_distance(mp, p0, p1, p2, p3);
                             p0 = p3;
                         }
                     };
-                    if dist.abs() < dist_min {
-                        dist_min = dist.abs();
+                    if dist < dist_min {
+                        dist_min = dist;
                     }
                 }
             }
@@ -206,17 +191,12 @@ fn glyph_to_sdf<'a>(c: char, face: &'a ft::Face) -> glium::texture::RawImage2d<'
             // 127 = zero distance (the outline)
             // 128 >> 255 = inside
             let shift = 127.0;
-            let scale = 255.0 / w as f32;
+            let scale = 30.0;
             dist_min = shift - dist_min * scale;
             if dist_min < 0. { dist_min = 0.; }
             if dist_min > 255. { dist_min = 255.; }
             buffer.push(dist_min as u8);
-*/
-            if inside {
-                buffer.push(255u8);
-            } else {
-                buffer.push(0u8);
-            }
+//            buffer.push(inside as u8 * 255u8);
         }
     }
     face.set_pixel_sizes(64, 0).unwrap();
@@ -305,8 +285,8 @@ fn main() {
 
     // Load a glyph from font
     let library = ft::Library::init().unwrap();
-    //let face = library.new_face("assets/FreeSans.ttf", 0).unwrap();
-    let face = library.new_face("assets/GFSDidot.otf", 0).unwrap();
+    let face = library.new_face("assets/FreeSans.ttf", 0).unwrap();
+    //let face = library.new_face("assets/GFSDidot.otf", 0).unwrap();
     face.set_pixel_sizes(64, 0).unwrap();
     let face_metrics = face.size_metrics().unwrap();
     let mut glyph_char = 'd';
