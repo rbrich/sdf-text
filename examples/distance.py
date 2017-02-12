@@ -10,9 +10,9 @@ WIDTH = 500
 HEIGHT = 500
 
 LEVEL_NAME = {
-    2: "line",
-    3: "quadratic bézier",
-    4: "cubic bézier",
+    1: "line",
+    2: "quadratic bézier",
+    3: "cubic bézier",
 }
 
 
@@ -178,7 +178,7 @@ class App:
         root.bind("<KeyPress-d>", self.on_key_dump)
         root.wm_title(string="Segment distance")
 
-        self.level = 2
+        self.level = 3
         self.points = [(WIDTH * 0.6, HEIGHT * 0.2),  # X point
                        (WIDTH * 0.2, HEIGHT * 0.4),  # P0
                        (WIDTH * 0.5, HEIGHT * 0.8),  # P1
@@ -230,13 +230,13 @@ class App:
             self.canvas.scan_dragto(event.x, event.y, 1)
 
     def on_key_plus(self, _event):
-        if self.level < 4:
+        if self.level < 3:
             self.level += 1
             self.recreate_points()
             self.refresh()
 
     def on_key_minus(self, _event):
-        if self.level > 2:
+        if self.level > 1:
             self.level -= 1
             self.recreate_points()
             self.refresh()
@@ -244,7 +244,7 @@ class App:
     def on_key_dump(self, _event):
         """Dump curve parameters to console"""
         print("Curve level:", self.level)
-        print("Curve points:", self.points[1:self.level+1])
+        print("Curve points:", self.points[1:self.level+2])
         print("Query point:", self.points[0])
         print("Result: dist=%s, X=%s, t=%s" % self.result)
         print("---")
@@ -252,20 +252,20 @@ class App:
     def recreate_points(self):
         self.canvas.delete("point")
         colors = ["red", "green", "blue", "blue", None]
-        colors[self.level] = "#909"
+        colors[self.level+1] = "#909"
         radius = 3
-        for p, color in zip(self.points[:self.level+1], colors):
+        for p, color in zip(self.points[:self.level+2], colors):
             coords = (p[0] - radius, p[1] - radius, p[0] + radius, p[1] + radius)
             self.canvas.create_oval(coords, fill=color, outline="white", tag="point")
 
     def refresh(self):
         self.canvas.delete("line")
-        points = self.points[1:self.level+1]
-        if self.level == 2:
+        points = self.points[1:self.level+2]
+        if self.level == 1:
             self.canvas.create_line(points, width=2, fill="white", tag="line")
         else:
             self.canvas.create_line(points, width=1, fill="black", tag="line")
-            func = {3: quadratic_bezier, 4: cubic_bezier}[self.level]
+            func = {2: quadratic_bezier, 3: cubic_bezier}[self.level]
             smoothness = 100
             start = points[0]
             for t in range(1, smoothness + 1):
@@ -274,8 +274,8 @@ class App:
                 start = imp
 
         px = self.points[0]
-        dist_func = {2: line_distance, 3: quadratic_distance, 4: cubic_distance}[self.level]
-        self.result = dist_func(px, *self.points[1:self.level+1])
+        dist_func = {1: line_distance, 2: quadratic_distance, 3: cubic_distance}[self.level]
+        self.result = dist_func(px, *self.points[1:self.level+2])
         dist, x, _t = self.result
         self.label_dist.config(text="%s distance: %.2f" % (LEVEL_NAME[self.level], dist))
         self.canvas.create_line(list(x), px, width=2, fill="yellow", dash=(3,5), tag="line")
