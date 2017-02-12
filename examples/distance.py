@@ -156,6 +156,44 @@ def cubic_distance(p, p0, p1, p2, p3):
     return dist, x_point, x_t
 
 
+def line_bbox(p0, p1):
+    a = (min(p0[0], p1[0]), min(p0[1], p1[1]))
+    b = (max(p0[0], p1[0]), max(p0[1], p1[1]))
+    return a, b
+
+
+def quadratic_bbox(p0, p1, p2):
+    extrema = [p0, p2]
+    # Solve the derivative B'(t) = 0, for each coordinate x, y.
+    # This gives us t_x, t_y. If these are in curve interval (0..1)
+    # then we get at most two extrema points of the parabola.
+    candidate_t = []
+    dx = p0[0] - 2*p1[0] + p2[0]
+    if dx != 0:
+        candidate_t.append((p0[0] - p1[0]) / dx)
+    dy = p0[1] - 2*p1[1] + p2[1]
+    if dy != 0:
+        candidate_t.append((p0[1] - p1[1]) / dy)
+    for t in candidate_t:
+        if 0 <= t <= 1:
+            p = quadratic_bezier(t, p0, p1, p2)
+            extrema.append(p)
+    xs = [p[0] for p in extrema]
+    ys = [p[1] for p in extrema]
+    a = (min(xs), min(ys))
+    b = (max(xs), max(ys))
+    return a, b
+
+
+def cubic_bbox(p0, p1, p2, p3):
+    extrema = [p0, p1, p2, p3]
+    xs = [p[0] for p in extrema]
+    ys = [p[1] for p in extrema]
+    a = (min(xs), min(ys))
+    b = (max(xs), max(ys))
+    return a, b
+
+
 class App:
 
     def __init__(self):
@@ -261,15 +299,24 @@ class App:
     def refresh(self):
         self.canvas.delete("line")
         points = self.points[1:self.level+2]
+
+        # Draw bbox
+        bbox_func = {1: line_bbox, 2: quadratic_bbox, 3: cubic_bbox}[self.level]
+        bb_lt, bb_rb = bbox_func(*points)
+        bb_rt = bb_rb[0], bb_lt[1]
+        bb_lb = bb_lt[0], bb_rb[1]
+        self.canvas.create_line(bb_lt, bb_rt, bb_rb, bb_lb, bb_lt,
+                                width=1, fill="blue", tag="line")
+
         if self.level == 1:
             self.canvas.create_line(points, width=2, fill="white", tag="line")
         else:
             self.canvas.create_line(points, width=1, fill="black", tag="line")
-            func = {2: quadratic_bezier, 3: cubic_bezier}[self.level]
+            curve_func = {2: quadratic_bezier, 3: cubic_bezier}[self.level]
             smoothness = 100
             start = points[0]
             for t in range(1, smoothness + 1):
-                imp = func(t / smoothness, *points)
+                imp = curve_func(t / smoothness, *points)
                 self.canvas.create_line(list(start), list(imp), width=2, fill="white", tag="line")
                 start = imp
 
