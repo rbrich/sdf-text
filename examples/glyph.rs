@@ -3,6 +3,7 @@
  *   Escape             quit
  *   F1                 enable bilinear filtering
  *   F2                 enable SDF shader
+ *   F3                 render SDF / freetype monochrome texture
  *   numbers, letters   change displayed glyph
  */
 
@@ -103,9 +104,9 @@ fn glyph_to_sdf<'a>(c: char, face: &'a ft::Face) -> glium::texture::RawImage2d<'
 
     // Find intersection points for the scan line
     // (edge crossings algorithm)
-    let mut rasterizer = Rasterizer::new(h as usize, origin.y);
+    let mut rasterizer = Rasterizer::new();
     for contour in outline.contours_iter() {
-        let mut p0 = vec2_from_ft(*contour.start(), pxsize);
+        let mut p0 = vec2_from_ft(contour.start(), pxsize);
         for curve in contour {
             match curve {
                 ft::outline::Curve::Line(a) => {
@@ -133,9 +134,7 @@ fn glyph_to_sdf<'a>(c: char, face: &'a ft::Face) -> glium::texture::RawImage2d<'
     for yr in (0..h).rev() {
         let y = origin.y + yr as f32;
 
-        let ref mut crossings = rasterizer.scanlines[yr as usize].crossings;
-        crossings.sort_by(|a, b| a.x.partial_cmp(&b.x).unwrap());
-        //println!("{} {:?}", y, crossings);
+        let ref mut crossings = rasterizer.scanline_crossings(y);
 
         // Find point distance
         let mut crossings_idx = 0;
@@ -153,7 +152,7 @@ fn glyph_to_sdf<'a>(c: char, face: &'a ft::Face) -> glium::texture::RawImage2d<'
             let inside = if reverse_fill { wn < 0 } else { wn > 0 };
 
             for contour in outline.contours_iter() {
-                let mut p0 = vec2_from_ft(*contour.start(), pxsize);
+                let mut p0 = vec2_from_ft(contour.start(), pxsize);
                 for curve in contour {
                     let dist;
                     match curve {
@@ -289,7 +288,7 @@ fn main() {
     //let face = library.new_face("assets/GFSDidot.otf", 0).unwrap();
     face.set_pixel_sizes(64, 0).unwrap();
     let face_metrics = face.size_metrics().unwrap();
-    let mut glyph_char = 'd';
+    let mut glyph_char = '0';
     let image = glyph_to_sdf(glyph_char, &face);
     let mut image_w = image.width;
     let mut image_h = image.height;

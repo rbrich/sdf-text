@@ -76,16 +76,6 @@ pub fn line_step(p0: Vec2, p1: Vec2) -> f32 {
     (p1.x - p0.x) / (p1.y - p0.y)
 }
 
-pub fn collinear(p0: Vec2, p1: Vec2, p2: Vec2, eps: f32) -> bool {
-    let a = line_step(p0, p1);
-    let b = line_step(p0, p2);
-    if a.is_finite() && b.is_finite() {
-        (a - b).abs() < eps
-    } else {
-        false
-    }
-}
-
 
 // Quadratic (conic) segment
 // -------------------------
@@ -134,26 +124,24 @@ pub fn quadratic_distance(p: Vec2, p0: Vec2, p1: Vec2, p2: Vec2) -> f32 {
     }
     dist_min.sqrt()
 }
-/*
-pub fn quadratic_intersection(y: f32, p0: Vec2, p1: Vec2, p2: Vec2) -> (usize, [;3]) {
+
+pub fn quadratic_intersection(y: f32, p0: Vec2, p1: Vec2, p2: Vec2) -> (usize, [f32;3]) {
     let a2 = p0.y - 2.0*p1.y + p2.y;
     let a1 = -2.0*p0.y + 2.0*p1.y;
     let a0 = p0.y - y;
-    let mut x_arr = [Intersection::new(true, 0.); 3];
+    let mut x_arr = [0f32; 3];
     let mut x_num = 0usize;
     for &t in roots::find_roots_quadratic(a2, a1, a0).as_ref() {
         if t < 0.0 || t > 1.0 {
             continue;
         }
         let tc = 1.0 - t;
-        x_arr[x_num].x = tc*tc * p0.x + 2.0*tc*t * p1.x + t*t * p2.x;
-        let direction = quadratic_derivate(t, p0, p1, p2);
-        x_arr[x_num].up = direction.y > 0.0;
+        x_arr[x_num] = tc*tc * p0.x + 2.0*tc*t * p1.x + t*t * p2.x;
         x_num += 1;
     }
     (x_num, x_arr)
 }
-*/
+
 
 // Cubic segment
 // -------------

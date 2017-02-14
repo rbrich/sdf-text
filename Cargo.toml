@@ -4,7 +4,8 @@ version = "0.1.0"
 authors = ["Radek Brich <radek.brich@devl.cz>"]
 
 [dependencies]
-freetype-rs = "0.11.0"
+#freetype-rs = "0.11.0"
+freetype-rs = { path = "../freetype-rs" }
 glium = "*"
 cgmath = "*"
 roots = "0.0.2"
