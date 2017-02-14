@@ -289,13 +289,14 @@ fn main() {
     //let face = library.new_face("assets/GFSDidot.otf", 0).unwrap();
     face.set_pixel_sizes(64, 0).unwrap();
     let face_metrics = face.size_metrics().unwrap();
-    let mut glyph_char = 'd';
+    let mut glyph_char = '0';
     let image = glyph_to_sdf(glyph_char, &face);
     let mut image_w = image.width;
     let mut image_h = image.height;
     let mut texture = glium::texture::Texture2d::new(&display, image).unwrap();
     let mut magnify_filter = glium::uniforms::MagnifySamplerFilter::Linear;
     let mut sdf = true;
+    let mut shift_pressed = false;
     loop {
         // Draw frame
         {
@@ -369,6 +370,10 @@ fn main() {
                     image_h = image.height;
                     texture = glium::texture::Texture2d::new(&display, image).unwrap();
                 }
+                Event::KeyboardInput(state, _, Some(VirtualKeyCode::LShift)) |
+                Event::KeyboardInput(state, _, Some(VirtualKeyCode::RShift))=> {
+                    shift_pressed = state == ElementState::Pressed;
+                }
                 Event::KeyboardInput(ElementState::Pressed, _, Some(key)) => {
                     let key = key as u8;
                     glyph_char =
@@ -377,7 +382,7 @@ fn main() {
                         } else if key == VirtualKeyCode::Key0 as u8 {
                             '0'
                         } else if key >= VirtualKeyCode::A as u8 && key <= VirtualKeyCode::Z as u8 {
-                            ('a' as u8 + (key - VirtualKeyCode::A as u8)) as char
+                            (if shift_pressed {'A'} else {'a'} as u8 + (key - VirtualKeyCode::A as u8)) as char
                         } else {
                             '&'
                         };

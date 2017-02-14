@@ -6,6 +6,7 @@ Signed distance field font rendering:
 - http://www.valvesoftware.com/publications/2007/SIGGRAPH2007_AlphaTestedMagnification.pdf
 - https://github.com/Chlumsky/msdfgen
   - https://dspace.cvut.cz/bitstream/handle/10467/62770/F8-DP-2015-Chlumsky-Viktor-thesis.pdf
+- http://stackoverflow.com/questions/5262951/what-is-state-of-the-art-for-text-rendering-in-opengl-as-of-version-4-1#5278471
 
 Bézier distance (nearest point on the curve):
 - https://en.wikipedia.org/wiki/Bézier_curve
@@ -31,10 +32,7 @@ Font rasterization:
   http://lspwww.epfl.ch/publications/typography/frsa.pdf
 - http://www.antigrain.com/research/font_rasterization/index.html
 - https://medium.com/@raphlinus/inside-the-fastest-font-renderer-in-the-world-75ae5270c445
-
-Spline intersection:
-- http://stackoverflow.com/questions/234261/the-intersection-point-between-a-spline-and-a-line#357569
-- http://cagd.cs.byu.edu/~557/text/ch7.pdf
+- https://www.freetype.org/freetype2/docs/glyphs/glyphs-6.html
 
 Point in polygon:
 - https://en.wikipedia.org/wiki/Point_in_polygon
