@@ -13,6 +13,7 @@ extern crate gl_text;
 
 use std::f32;
 use std::time;
+use std::env;
 use glium::{glutin, DisplayBuild, Surface};
 use glium::glutin::{Event, ElementState, VirtualKeyCode};
 
@@ -80,6 +81,7 @@ const FRAGMENT_SHADER_SDF: &'static str = r#"
 "#;
 
 const PADDING: u32 = 1;
+const FACE_SIZE: u32 = 128;
 
 fn glyph_to_sdf<'a>(c: char, face: &'a ft::Face) -> glium::texture::RawImage2d<'a, u8> {
     // Make SDF texture from the glyph
@@ -88,7 +90,7 @@ fn glyph_to_sdf<'a>(c: char, face: &'a ft::Face) -> glium::texture::RawImage2d<'
     face.load_char(c as usize, ft::face::NO_HINTING).unwrap();
     let outline = face.glyph().outline().unwrap();
     let bbox = face.glyph().get_glyph().unwrap().get_cbox(0);
-    let pxsize = face.em_size() as f32;  // emsize * 64 (26.6 format units)
+    let pxsize = face.em_size() as f32 * 64. / FACE_SIZE as f32;
     let xmin = (bbox.xMin as f32 / pxsize).round();
     let ymin = (bbox.yMin as f32 / pxsize).round();
     let xmax = (bbox.xMax as f32 / pxsize).round();
@@ -190,7 +192,7 @@ fn glyph_to_sdf<'a>(c: char, face: &'a ft::Face) -> glium::texture::RawImage2d<'
             // 127 = zero distance (the outline)
             // 128 >> 255 = inside
             let shift = 127.0;
-            let scale = 30.0;
+            let scale = 1920. / FACE_SIZE as f32;
             dist_min = shift - dist_min * scale;
             if dist_min < 0. { dist_min = 0.; }
             if dist_min > 255. { dist_min = 255.; }
@@ -198,7 +200,7 @@ fn glyph_to_sdf<'a>(c: char, face: &'a ft::Face) -> glium::texture::RawImage2d<'
 //            buffer.push(inside as u8 * 255u8);
         }
     }
-    face.set_pixel_sizes(64, 0).unwrap();
+    face.set_pixel_sizes(FACE_SIZE, 0).unwrap();
     let t_end = time::Instant::now();
     let d = t_end.duration_since(t_start);
     println!("Render: size {}x{} in {}s (SDF)",
@@ -214,7 +216,7 @@ fn glyph_to_sdf<'a>(c: char, face: &'a ft::Face) -> glium::texture::RawImage2d<'
 fn glyph_to_image<'a>(c: char, face: &'a ft::Face) -> glium::texture::RawImage2d<'a, u8> {
     // Make texture from the glyph
     let t_start = time::Instant::now();
-    face.set_pixel_sizes(64, 0).unwrap();
+    face.set_pixel_sizes(FACE_SIZE, 0).unwrap();
     face.load_char(c as usize, ft::face::RENDER | ft::face::NO_HINTING | ft::face::MONOCHROME).unwrap();
     let bitmap = face.glyph().bitmap();
     assert_eq!(bitmap.pixel_mode().unwrap(), ft::bitmap::PixelMode::Mono);
@@ -246,6 +248,11 @@ fn glyph_to_image<'a>(c: char, face: &'a ft::Face) -> glium::texture::RawImage2d
 }
 
 fn main() {
+    // Parse args
+    let mut args = env::args();
+    let font_name = args.nth(1).unwrap_or("assets/FreeSans.ttf".to_string());
+    let text_to_show = args.next().unwrap_or("0".to_string());
+
     // Create OpenGL window
     let display = glutin::WindowBuilder::new()
         .build_glium().unwrap();
@@ -284,11 +291,10 @@ fn main() {
 
     // Load a glyph from font
     let library = ft::Library::init().unwrap();
-    let face = library.new_face("assets/FreeSans.ttf", 0).unwrap();
-    //let face = library.new_face("assets/GFSDidot.otf", 0).unwrap();
-    face.set_pixel_sizes(64, 0).unwrap();
+    let face = library.new_face(font_name, 0).unwrap();
+    face.set_pixel_sizes(FACE_SIZE, 0).unwrap();
     let face_metrics = face.size_metrics().unwrap();
-    let mut glyph_char = '0';
+    let mut glyph_char = text_to_show.chars().next().unwrap();
     let image = glyph_to_sdf(glyph_char, &face);
     let mut image_w = image.width;
     let mut image_h = image.height;
