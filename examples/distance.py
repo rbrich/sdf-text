@@ -6,8 +6,8 @@ import numpy as np
 import numpy.linalg as la
 from scipy.optimize import brentq
 
-WIDTH = 500
-HEIGHT = 500
+WIDTH = 600
+HEIGHT = 400
 
 LEVEL_NAME = {
     1: "line",
@@ -29,6 +29,15 @@ def ipairs(it):
         b = next(it)
         yield a, b
         a = b
+
+
+def solve_quadratic(a, b, c):
+    """Find real roots of quadratic equation:
+
+    a.x^2 + b.x + c = 0
+
+    """
+    return [r.real for r in np.poly1d([a, b, c]).r if r.imag == 0]
 
 
 def solve_cubic(a, b, c, d):
@@ -172,14 +181,14 @@ def quadratic_bbox(p0, p1, p2):
     # Solve the derivative B'(t) = 0, for each coordinate x, y.
     # This gives us t_x, t_y. If these are in curve interval (0..1)
     # then we get at most two extrema points of the parabola.
-    candidate_t = []
+    candidates = []
     dx = p0[0] - 2*p1[0] + p2[0]
     if dx != 0:
-        candidate_t.append((p0[0] - p1[0]) / dx)
+        candidates.append((p0[0] - p1[0]) / dx)
     dy = p0[1] - 2*p1[1] + p2[1]
     if dy != 0:
-        candidate_t.append((p0[1] - p1[1]) / dy)
-    for t in candidate_t:
+        candidates.append((p0[1] - p1[1]) / dy)
+    for t in candidates:
         if 0 <= t <= 1:
             p = quadratic_bezier(t, p0, p1, p2)
             extrema.append(p)
@@ -191,7 +200,17 @@ def quadratic_bbox(p0, p1, p2):
 
 
 def cubic_bbox(p0, p1, p2, p3):
-    extrema = [p0, p1, p2, p3]
+    p0, p1, p2, p3 = map(np.array, [p0, p1, p2, p3])
+    extrema = [p0, p3]
+    a = p3 - 3*p2 + 3*p1 - p0
+    b = 2*(p2 - 2*p1 + p0)
+    c = p1 - p0
+    candidates = solve_quadratic(a[0], b[0], c[0])
+    candidates += solve_quadratic(a[1], b[1], c[1])
+    for t in candidates:
+        if 0 <= t <= 1:
+            p = cubic_bezier(t, p0, p1, p2, p3)
+            extrema.append(p)
     xs = [p[0] for p in extrema]
     ys = [p[1] for p in extrema]
     a = (min(xs), min(ys))
