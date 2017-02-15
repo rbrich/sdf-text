@@ -2,7 +2,7 @@ use curve::*;
 
 #[derive(Copy, Clone, Debug)]
 pub struct OrientedCrossing {
-    pub dir: i8,  // 1=up, -1=down
+    pub dir: i8,  // 1=left (line going up), -1=right (line going down)
     pub x: f32,
 }
 
@@ -48,6 +48,19 @@ impl QuadraticProfile {
     }
 }
 
+/**
+ * Generic rasterizer for vector graphics.
+ *
+ * Push curves in, evaluate scanline, read crossings.
+ * Each crossing has X coordinate (crossed at scanline's Y coordinate)
+ * and direction (curve crossed from left/right).
+ * This gives us enough information to compute winding numbers (wn)
+ * and this fill the spans according to filling rule.
+ *
+ * For use with SDF, this has to give EXACT coordinates.
+ * Any estimation will create visible artifacts, eg. if the distance vector
+ * points inside while rasterizer evaluates the point as outside.
+ */
 #[derive(Clone, Debug)]
 pub struct Rasterizer {
     pub linear_profiles: Vec<LinearProfile>,

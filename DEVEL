@@ -34,7 +34,9 @@ Font rasterization:
 - Font Rasterization: the State of the Art
   http://lspwww.epfl.ch/publications/typography/frsa.pdf
 - http://www.antigrain.com/research/font_rasterization/index.html
-- https://medium.com/@raphlinus/inside-the-fastest-font-renderer-in-the-world-75ae5270c445
+- Rust:
+  - https://medium.com/@raphlinus/inside-the-fastest-font-renderer-in-the-world-75ae5270c445
+  - http://pcwalton.github.io/blog/2017/02/14/pathfinder/
 
 Point in polygon:
 - https://en.wikipedia.org/wiki/Point_in_polygon
