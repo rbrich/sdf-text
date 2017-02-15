@@ -15,6 +15,11 @@ LEVEL_NAME = {
     3: "cubic bézier",
 }
 
+HELP_TEXT = "[+/-] change curve level  " \
+            "[LMB] move point  " \
+            "[RMB] move view  " \
+            "[b] show bounding box"
+
 
 def ipairs(it):
     """Make new iterator which returns rolling window of pairs from `it`."""
@@ -198,7 +203,7 @@ class App:
 
     def __init__(self):
         root = tk.Tk()
-        self.label_help = tk.Label(root, text="[+/-] change curve level  [LMB] move point  [RMB] move view", justify=tk.LEFT)
+        self.label_help = tk.Label(root, text=HELP_TEXT, justify=tk.LEFT)
         self.label_help.pack()
         self.canvas = tk.Canvas(root, width=WIDTH, height=HEIGHT, bg="#555")
         self.canvas.pack(fill=tk.BOTH, expand=True)
@@ -213,6 +218,7 @@ class App:
         root.bind("<KeyPress-plus>", self.on_key_plus)
         root.bind("<KeyPress-KP_Subtract>", self.on_key_minus)
         root.bind("<KeyPress-minus>", self.on_key_minus)
+        root.bind("<KeyPress-b>", self.on_key_bbox)
         root.bind("<KeyPress-d>", self.on_key_dump)
         root.wm_title(string="Segment distance")
 
@@ -223,6 +229,7 @@ class App:
                        (WIDTH * 0.8, HEIGHT * 0.4),  # P2
                        (WIDTH * 0.8, HEIGHT * 0.8)]  # P3
         self.result = (None, None, None)
+        self.show_bbox = False
         self.recreate_points()
         self.refresh()
 
@@ -279,6 +286,10 @@ class App:
             self.recreate_points()
             self.refresh()
 
+    def on_key_bbox(self, _event):
+        self.show_bbox = not self.show_bbox
+        self.refresh()
+
     def on_key_dump(self, _event):
         """Dump curve parameters to console"""
         print("Curve level:", self.level)
@@ -301,12 +312,13 @@ class App:
         points = self.points[1:self.level+2]
 
         # Draw bbox
-        bbox_func = {1: line_bbox, 2: quadratic_bbox, 3: cubic_bbox}[self.level]
-        bb_lt, bb_rb = bbox_func(*points)
-        bb_rt = bb_rb[0], bb_lt[1]
-        bb_lb = bb_lt[0], bb_rb[1]
-        self.canvas.create_line(bb_lt, bb_rt, bb_rb, bb_lb, bb_lt,
-                                width=1, fill="blue", tag="line")
+        if self.show_bbox:
+            bbox_func = {1: line_bbox, 2: quadratic_bbox, 3: cubic_bbox}[self.level]
+            bb_lt, bb_rb = bbox_func(*points)
+            bb_rt = bb_rb[0], bb_lt[1]
+            bb_lb = bb_lt[0], bb_rb[1]
+            self.canvas.create_line(bb_lt, bb_rt, bb_rb, bb_lb, bb_lt,
+                                    width=1, fill="blue", tag="line")
 
         if self.level == 1:
             self.canvas.create_line(points, width=2, fill="white", tag="line")

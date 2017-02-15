@@ -13,81 +13,106 @@ impl OrientedCrossing {
 }
 
 #[derive(Clone, Debug)]
-pub struct Spans {
-    pub crossings: Vec<OrientedCrossing>,
+pub struct LinearProfile {
+    dir: i8,
+    p0: Vec2,
+    p1: Vec2,
 }
 
-impl Spans {
-    pub fn new() -> Self {
-        Spans {
-            crossings: Vec::new(),
+impl LinearProfile {
+    pub fn new(dir: i8, p0: Vec2, p1: Vec2) -> Self {
+        LinearProfile {
+            dir: dir,
+            p0: p0,
+            p1: p1,
+        }
+    }
+}
+
+#[derive(Clone, Debug)]
+pub struct QuadraticProfile {
+    dir: i8,
+    p0: Vec2,
+    p1: Vec2,
+    p2: Vec2,
+}
+
+impl QuadraticProfile {
+    pub fn new(dir: i8, p0: Vec2, p1: Vec2, p2: Vec2) -> Self {
+        QuadraticProfile {
+            dir: dir,
+            p0: p0,
+            p1: p1,
+            p2: p2,
         }
     }
 }
 
 #[derive(Clone, Debug)]
 pub struct Rasterizer {
-    pub scanlines: Vec<Spans>,  // from bottom to top
-    pub origin_y: f32,          // y coordinate of first scan line
+    pub linear_profiles: Vec<LinearProfile>,
+    pub quadratic_profiles: Vec<QuadraticProfile>,
 }
 
 impl Rasterizer {
-    pub fn new(rows: usize, origin_y: f32) -> Self {
-        let mut res = Rasterizer {
-            scanlines: Vec::with_capacity(rows),
-            origin_y: origin_y,
-        };
-        res.scanlines.resize(rows, Spans::new());
-        res
+    pub fn new() -> Self {
+        Rasterizer {
+            linear_profiles: Vec::new(),
+            quadratic_profiles: Vec::new(),
+        }
+    }
+
+    pub fn scanline_crossings(&self, y: f32) -> Vec<OrientedCrossing> {
+        let mut crossings = Vec::<OrientedCrossing>::new();
+        for prf in &self.linear_profiles {
+            if y >= prf.p0.y && y < prf.p1.y {
+                let x = line_intersection(y, prf.p0, prf.p1);
+                crossings.push(OrientedCrossing::new(prf.dir, x));
+            }
+        }
+        for prf in &self.quadratic_profiles {
+            if y >= prf.p0.y && y < prf.p2.y {
+                let (x_n, x_a) = quadratic_intersection(y, prf.p0, prf.p1, prf.p2);
+                assert!(x_n == 1);
+                crossings.push(OrientedCrossing::new(prf.dir, x_a[0]));
+            }
+        }
+        crossings.sort_by(|a, b| a.x.partial_cmp(&b.x).unwrap());
+        //println!("{} {:?}", y, crossings);
+        crossings
     }
 
     pub fn push_line(&mut self, p0: Vec2, p1: Vec2) {
         if p0.y < p1.y {
-            // up
-            self.push_line_unoriented(p0, p1, 1);
+            self.linear_profiles.push(LinearProfile::new(1, p0, p1));
         }
         if p1.y < p0.y {
-            // down
-            self.push_line_unoriented(p1, p0, -1);
-        }
-    }
-
-    // Pre-condition: p0.y < p1.y
-    fn push_line_unoriented(&mut self, p0: Vec2, p1: Vec2, dir: i8) {
-        let mut line = (p0.y - self.origin_y) as i32 - 1;
-        let mut y = line as f32 + self.origin_y;
-        while y < p0.y {
-            y += 1.0;
-            line += 1;
-        }
-        let mut x = line_intersection(y, p0, p1);
-        let dx = line_step(p0, p1);
-        while y < p1.y {
-            self.scanlines[line as usize].crossings.push(OrientedCrossing::new(dir, x));
-            x += dx;
-            y += 1.0;
-            line += 1;
+            self.linear_profiles.push(LinearProfile::new(-1, p1, p0));
         }
     }
 
     pub fn push_bezier2(&mut self, p0: Vec2, p1: Vec2, p2: Vec2) {
-        let eps = 0.1;
-        let subpixel = (p0 - p1 + p2 - p1).magnitude2() < 0.5;
-        if p0.y < p2.y && (subpixel || collinear(p0, p1, p2, eps)) {
-            // up line
-            return self.push_line_unoriented(p0, p2, 1);
+        // check the parabola for Y extrema
+        let t = (p0.y - p1.y) / (p0.y - 2.0 * p1.y + p2.y);
+        if t.is_finite() && 0.0 < t && t < 1.0 {
+            // extreme point found, split the curve at `t`
+            let m0 = p0.lerp(p1, t);
+            let m1 = p1.lerp(p2, t);
+            let m = m0.lerp(m1, t);
+            self.push_bezier2_monotonic(p0, m0, m);
+            self.push_bezier2_monotonic(m, m1, p2);
+        } else {
+            self.push_bezier2_monotonic(p0, p1, p2);
         }
-        if p2.y < p0.y && (subpixel || collinear(p2, p1, p0, eps)) {
-            // down line
-            return self.push_line_unoriented(p2, p0, -1);
+    }
+
+    pub fn push_bezier2_monotonic(&mut self, p0: Vec2, p1: Vec2, p2: Vec2) {
+        if p0.y < p2.y {
+            self.quadratic_profiles.push(QuadraticProfile::new(1, p0, p1, p2));
         }
-        // not flat enough -> split
-        let t = 0.5;
-        let m0 = p0.lerp(p1, t);
-        let m1 = p1.lerp(p2, t);
-        let m = m0.lerp(m1, t);
-        self.push_bezier2(p0, m0, m);
-        self.push_bezier2(m, m1, p2);
+        if p2.y < p0.y {
+            self.quadratic_profiles.push(QuadraticProfile::new(-1, p2, p1, p0));
+        }
     }
 
     pub fn push_bezier3(&mut self, p0: Vec2, p1: Vec2, p2: Vec2, p3: Vec2) {

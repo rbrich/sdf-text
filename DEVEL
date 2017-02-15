@@ -28,11 +28,13 @@ Equation solvers:
   - https://github.com/GuillaumeGomez/rust-GSL
 
 Font rasterization:
+- FreeType:
+  - freetype-2.7.1/docs/raster.txt
+  - https://www.freetype.org/freetype2/docs/glyphs/glyphs-6.html
 - Font Rasterization: the State of the Art
   http://lspwww.epfl.ch/publications/typography/frsa.pdf
 - http://www.antigrain.com/research/font_rasterization/index.html
 - https://medium.com/@raphlinus/inside-the-fastest-font-renderer-in-the-world-75ae5270c445
-- https://www.freetype.org/freetype2/docs/glyphs/glyphs-6.html
 
 Point in polygon:
 - https://en.wikipedia.org/wiki/Point_in_polygon
