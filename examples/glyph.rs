@@ -9,7 +9,7 @@
 
 #[macro_use] extern crate glium;
 extern crate freetype as ft;
-extern crate gl_text;
+extern crate sdf_text;
 
 use std::f32;
 use std::time;
@@ -17,7 +17,7 @@ use std::env;
 use glium::{glutin, DisplayBuild, Surface};
 use glium::glutin::{Event, ElementState, VirtualKeyCode};
 
-use gl_text::*;
+use sdf_text::*;
 
 pub fn vec2_from_ft(p: ft::Vector, unit: f32) -> Vec2 {
     Vec2 { x: p.x as f32 / unit, y: p.y as f32 / unit }

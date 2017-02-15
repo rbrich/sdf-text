@@ -27,14 +27,11 @@ Equation solvers:
   - https://github.com/GuillaumeGomez/rust-GSL
 
 Font rasterization:
+- freetype-2.7.1/docs/raster.txt
 - Font Rasterization: the State of the Art
   http://lspwww.epfl.ch/publications/typography/frsa.pdf
 - http://www.antigrain.com/research/font_rasterization/index.html
 - https://medium.com/@raphlinus/inside-the-fastest-font-renderer-in-the-world-75ae5270c445
-
-Spline intersection:
-- http://stackoverflow.com/questions/234261/the-intersection-point-between-a-spline-and-a-line#357569
-- http://cagd.cs.byu.edu/~557/text/ch7.pdf
 
 Point in polygon:
 - https://en.wikipedia.org/wiki/Point_in_polygon
