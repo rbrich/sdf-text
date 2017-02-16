@@ -126,7 +126,7 @@ fn glyph_to_sdf<'a>(c: char, face: &'a ft::Face) -> glium::texture::RawImage2d<'
                     let p1 = vec2_from_ft(a, pxsize);
                     let p2 = vec2_from_ft(b, pxsize);
                     let p3 = vec2_from_ft(c, pxsize);
-                    rasterizer.push_bezier3(p0, p1, p1, p2);
+                    rasterizer.push_bezier3(p0, p1, p2, p3);
                     p0 = p3;
                 }
             };

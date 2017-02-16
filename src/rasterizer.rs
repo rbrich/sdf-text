@@ -1,3 +1,4 @@
+use roots;
 use curve::*;
 
 #[derive(Copy, Clone, Debug)]
@@ -48,6 +49,27 @@ impl QuadraticProfile {
     }
 }
 
+#[derive(Clone, Debug)]
+pub struct CubicProfile {
+    dir: i8,
+    p0: Vec2,
+    p1: Vec2,
+    p2: Vec2,
+    p3: Vec2,
+}
+
+impl CubicProfile {
+    pub fn new(dir: i8, p0: Vec2, p1: Vec2, p2: Vec2, p3: Vec2) -> Self {
+        CubicProfile {
+            dir: dir,
+            p0: p0,
+            p1: p1,
+            p2: p2,
+            p3: p3,
+        }
+    }
+}
+
 /**
  * Generic rasterizer for vector graphics.
  *
@@ -65,6 +87,7 @@ impl QuadraticProfile {
 pub struct Rasterizer {
     pub linear_profiles: Vec<LinearProfile>,
     pub quadratic_profiles: Vec<QuadraticProfile>,
+    pub cubic_profiles: Vec<CubicProfile>,
 }
 
 impl Rasterizer {
@@ -72,6 +95,7 @@ impl Rasterizer {
         Rasterizer {
             linear_profiles: Vec::new(),
             quadratic_profiles: Vec::new(),
+            cubic_profiles: Vec::new(),
         }
     }
 
@@ -86,6 +110,13 @@ impl Rasterizer {
         for prf in &self.quadratic_profiles {
             if y >= prf.p0.y && y < prf.p2.y {
                 let (x_n, x_a) = quadratic_intersection(y, prf.p0, prf.p1, prf.p2);
+                assert!(x_n == 1);
+                crossings.push(OrientedCrossing::new(prf.dir, x_a[0]));
+            }
+        }
+        for prf in &self.cubic_profiles {
+            if y >= prf.p0.y && y < prf.p3.y {
+                let (x_n, x_a) = cubic_intersection(y, prf.p0, prf.p1, prf.p2, prf.p3);
                 assert!(x_n == 1);
                 crossings.push(OrientedCrossing::new(prf.dir, x_a[0]));
             }
@@ -105,15 +136,15 @@ impl Rasterizer {
     }
 
     pub fn push_bezier2(&mut self, p0: Vec2, p1: Vec2, p2: Vec2) {
-        // check the parabola for Y extrema
+        // check the curve for Y extrema
         let t = (p0.y - p1.y) / (p0.y - 2.0 * p1.y + p2.y);
         if t.is_finite() && 0.0 < t && t < 1.0 {
-            // extreme point found, split the curve at `t`
+            // one extremum found, split the curve at `t`
             let m0 = p0.lerp(p1, t);
             let m1 = p1.lerp(p2, t);
-            let m = m0.lerp(m1, t);
-            self.push_bezier2_monotonic(p0, m0, m);
-            self.push_bezier2_monotonic(m, m1, p2);
+            let n0 = m0.lerp(m1, t);
+            self.push_bezier2_monotonic(p0, m0, n0);
+            self.push_bezier2_monotonic(n0, m1, p2);
         } else {
             self.push_bezier2_monotonic(p0, p1, p2);
         }
@@ -129,19 +160,51 @@ impl Rasterizer {
     }
 
     pub fn push_bezier3(&mut self, p0: Vec2, p1: Vec2, p2: Vec2, p3: Vec2) {
-        /*if y >= min(&[p0.y, p1.y, p2.y, p3.y])
-        && y < max(&[p0.y, p1.y, p2.y, p3.y]) {
-            let (x_num, x_arr) = cubic_intersection(y, p0, p1, p2, p3);
-            for i in 0..x_num {
-                intersections.push(x_arr[i]);
+        // check the curve for Y extrema
+        let a = p3.y - 3.0*p2.y + 3.0*p1.y - p0.y;
+        let b = 2.0*(p2.y - 2.0*p1.y + p0.y);
+        let c = p1.y - p0.y;
+        //println!("cubic {:?} {:?} {:?} {:?}", p0,p1,p2,p3);
+        let found_roots = roots::find_roots_quadratic(a, b, c);
+        let extrema: Vec<f32> = found_roots.as_ref().iter().cloned()
+            .filter(|&t| t.is_finite() && 0.0 < t && t < 1.0 ).collect();
+        if extrema.len() == 0 {
+            // No extrema, the curve is monotonic
+            self.push_bezier3_monotonic(p0, p1, p2, p3)
+        } else {
+            // one or more extrema found, split the curve at `t`
+            let t1 = extrema[0];
+            let m0 = p0.lerp(p1, t1);
+            let m1 = p1.lerp(p2, t1);
+            let m2 = p2.lerp(p3, t1);
+            let n0 = m0.lerp(m1, t1);
+            let n1 = m1.lerp(m2, t1);
+            let o0 = n0.lerp(n1, t1);
+            if extrema.len() > 1 {
+                // If there is second extremum, split the curve recursively
+                // (we could also do double split in one go as an optimization)
+                debug_assert!(extrema.len() == 2);
+                let t2 = extrema[1];
+                if t2 > t1 {
+                    self.push_bezier3_monotonic(p0, m0, n0, o0);
+                    self.push_bezier3(o0, n1, m2, p3);
+                } else {
+                    self.push_bezier3(p0, m0, n0, o0);
+                    self.push_bezier3_monotonic(o0, n1, m2, p3);
+                }
+            } else {
+                self.push_bezier3_monotonic(p0, m0, n0, o0);
+                self.push_bezier3_monotonic(o0, n1, m2, p3);
             }
-            // Include bottom point, if touched
-            if x_num == 0 && y == p0.y && p0.y < p3.y {
-                intersections.push(Intersection::new(true, p0.x));
-            }
-            if x_num == 0 && y == p3.y && p3.y < p0.y {
-                intersections.push(Intersection::new(false, p0.x));
-            }
-        }*/
+        }
+    }
+
+    pub fn push_bezier3_monotonic(&mut self, p0: Vec2, p1: Vec2, p2: Vec2, p3: Vec2) {
+        if p0.y < p3.y {
+            self.cubic_profiles.push(CubicProfile::new(1, p0, p1, p2, p3));
+        }
+        if p3.y < p0.y {
+            self.cubic_profiles.push(CubicProfile::new(-1, p3, p2, p1, p0));
+        }
     }
 }

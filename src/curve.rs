@@ -85,11 +85,12 @@ fn quadratic_bezier(t: f32, p0: Vec2, p1: Vec2, p2: Vec2) -> Vec2 {
     let tc = 1.0 - t;
     tc*tc*p0 + 2.0*tc*t*p1 + t*t*p2
 }
-
+/*
 fn quadratic_derivate(t: f32, p0: Vec2, p1: Vec2, p2: Vec2) -> Vec2 {
     let tc = 1.0 - t;
     2.0*tc*(p1 - p0) + 2.0*t*(p2 - p1)
 }
+*/
 
 // Distance to quadratic bézier curve from a point
 pub fn quadratic_distance(p: Vec2, p0: Vec2, p1: Vec2, p2: Vec2) -> f32 {
@@ -189,28 +190,24 @@ pub fn cubic_distance(p: Vec2, p0: Vec2, p1: Vec2, p2: Vec2, p3: Vec2) -> f32 {
     dist_min.sqrt()
 }
 
-/*
-pub fn cubic_intersection(y: f32, p0: Vec2, p1: Vec2, p2: Vec2, p3: Vec2) -> (usize, [Intersection;3]) {
+pub fn cubic_intersection(y: f32, p0: Vec2, p1: Vec2, p2: Vec2, p3: Vec2) -> (usize, [f32;3]) {
     let a3 = -p0.y + 3.0*p1.y -3.0*p2.y + p3.y;
     let a2 = 3.0*p0.y - 6.0*p1.y + 3.0*p2.y;
     let a1 = -3.0*p0.y + 3.0*p1.y;
     let a0 = p0.y - y;
-    let mut x_arr = [Intersection::new(true, 0.); 3];
+    let mut x_arr = [0f32; 3];
     let mut x_num = 0usize;
     for &t in roots::find_roots_cubic(a3, a2, a1, a0).as_ref() {
         if !t.is_finite() || t < 0.0 || t > 1.0 {
             continue;
         }
         let tc = 1.0 - t;
-        let x = tc*tc*tc * p0.x + 3.0*tc*tc*t * p1.x + 3.0*tc*t*t * p2.x + t*t*t * p3.x;
-        let direction = cubic_derivate(t, p0, p1, p2, p3);
-        x_arr[x_num].x = x;
-        x_arr[x_num].up = direction.y > 0.0;
+        x_arr[x_num] = tc*tc*tc * p0.x + 3.0*tc*tc*t * p1.x + 3.0*tc*t*t * p2.x + t*t*t * p3.x;
         x_num += 1;
     }
     (x_num, x_arr)
 }
-*/
+
 
 // Tests
 // -----
