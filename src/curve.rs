@@ -49,6 +49,35 @@ impl std::ops::Mul<Vec2> for f32 {
     }
 }
 
+// Equation solvers
+// ----------------
+
+const EPS: f32 = 5e-5;
+
+// These solvers are used when we know in advance that the equation
+// has exactly one root in range 0..1. There might be other roots out
+// of this range - these are ignored.
+
+pub fn solve_quadratic_for_single_t(a2: f32, a1: f32, a0: f32) -> f32 {
+    for &t in roots::find_roots_quadratic(a2, a1, a0).as_ref() {
+        if t.is_finite() && t >= 0.0 && t <= 1.0 {
+            return t;
+        }
+    }
+    panic!("quadratic root not found");
+}
+
+pub fn solve_cubic_for_single_t(a3: f32, a2: f32, a1: f32, a0: f32) -> f32 {
+    if a3.abs() < EPS {
+        return solve_quadratic_for_single_t(a2, a1, a0);
+    }
+    for &t in roots::find_roots_cubic(a3, a2, a1, a0).as_ref() {
+        if t.is_finite() && t >= 0.0 && t <= 1.0 {
+            return t;
+        }
+    }
+    panic!("cubic root not found");
+}
 
 // Line segment
 // ------------
@@ -64,16 +93,10 @@ pub fn line_distance(p: Vec2, p0: Vec2, p1: Vec2) -> f32 {
     (x - p).magnitude()
 }
 
-// Intersection between horizontal line at Y and line segment
+// Intersection between horizontal scanline at Y and line segment
 pub fn line_intersection(y: f32, p0: Vec2, p1: Vec2) -> f32 {
     let t = (y - p0.y) / (p1.y - p0.y);
     p0.x + t * (p1.x - p0.x)
-}
-
-// Pre-condition: p0.y < p1.y
-#[inline]
-pub fn line_step(p0: Vec2, p1: Vec2) -> f32 {
-    (p1.x - p0.x) / (p1.y - p0.y)
 }
 
 
@@ -126,21 +149,15 @@ pub fn quadratic_distance(p: Vec2, p0: Vec2, p1: Vec2, p2: Vec2) -> f32 {
     dist_min.sqrt()
 }
 
-pub fn quadratic_intersection(y: f32, p0: Vec2, p1: Vec2, p2: Vec2) -> (usize, [f32;3]) {
+// Find intersection between monotonic (growing) quadratic bezier and Y scanline
+pub fn quadratic_intersection(y: f32, p0: Vec2, p1: Vec2, p2: Vec2) -> f32 {
+    debug_assert!(p0.y <= p1.y && p1.y <= p2.y);
     let a2 = p0.y - 2.0*p1.y + p2.y;
     let a1 = -2.0*p0.y + 2.0*p1.y;
     let a0 = p0.y - y;
-    let mut x_arr = [0f32; 3];
-    let mut x_num = 0usize;
-    for &t in roots::find_roots_quadratic(a2, a1, a0).as_ref() {
-        if t < 0.0 || t > 1.0 {
-            continue;
-        }
-        let tc = 1.0 - t;
-        x_arr[x_num] = tc*tc * p0.x + 2.0*tc*t * p1.x + t*t * p2.x;
-        x_num += 1;
-    }
-    (x_num, x_arr)
+    let t = solve_quadratic_for_single_t(a2, a1, a0);
+    let tc = 1.0 - t;
+    tc*tc * p0.x + 2.0*tc*t * p1.x + t*t * p2.x
 }
 
 
@@ -190,22 +207,16 @@ pub fn cubic_distance(p: Vec2, p0: Vec2, p1: Vec2, p2: Vec2, p3: Vec2) -> f32 {
     dist_min.sqrt()
 }
 
-pub fn cubic_intersection(y: f32, p0: Vec2, p1: Vec2, p2: Vec2, p3: Vec2) -> (usize, [f32;3]) {
-    let a3 = -p0.y + 3.0*p1.y -3.0*p2.y + p3.y;
+// Find intersection between monotonic (growing) cubic bezier and Y scanline
+pub fn cubic_intersection(y: f32, p0: Vec2, p1: Vec2, p2: Vec2, p3: Vec2) -> f32 {
+    debug_assert!(p0.y < p1.y + EPS && p1.y < p2.y + EPS && p2.y < p3.y + EPS);
+    let a3 = -p0.y + 3.0*p1.y - 3.0*p2.y + p3.y;
     let a2 = 3.0*p0.y - 6.0*p1.y + 3.0*p2.y;
     let a1 = -3.0*p0.y + 3.0*p1.y;
     let a0 = p0.y - y;
-    let mut x_arr = [0f32; 3];
-    let mut x_num = 0usize;
-    for &t in roots::find_roots_cubic(a3, a2, a1, a0).as_ref() {
-        if !t.is_finite() || t < 0.0 || t > 1.0 {
-            continue;
-        }
-        let tc = 1.0 - t;
-        x_arr[x_num] = tc*tc*tc * p0.x + 3.0*tc*tc*t * p1.x + 3.0*tc*t*t * p2.x + t*t*t * p3.x;
-        x_num += 1;
-    }
-    (x_num, x_arr)
+    let t = solve_cubic_for_single_t(a3, a2, a1, a0);
+    let tc = 1.0 - t;
+    tc*tc*tc * p0.x + 3.0*tc*tc*t * p1.x + 3.0*tc*t*t * p2.x + t*t*t * p3.x
 }
 
 

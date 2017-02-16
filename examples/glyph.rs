@@ -69,18 +69,18 @@ const FRAGMENT_SHADER_SDF: &'static str = r#"
     uniform sampler2D tex;
 
     const vec3 c_inside = vec3(1.0, 1.0, 1.0);
-    const vec3 c_outline = vec3(0.6, 0.6, 0.0);
+    const vec3 c_outline = vec3(0.6, 0.0, 0.0);
     const vec3 c_outside = vec3(0.0, 0.0, 0.0);
 
     void main() {
         float w = texture(tex, v_tex_coords).r;
-        vec3 c_mixed = mix(c_outline, c_inside, smoothstep(0.59, 0.60, w));
-        float alpha = smoothstep(0.50, 0.51, w);
+        vec3 c_mixed = mix(c_outline, c_inside, smoothstep(0.50, 0.51, w));
+        float alpha = smoothstep(0.40, 0.41, w);
         color = vec4(mix(c_outside, c_mixed, alpha), 1.0);
     }
 "#;
 
-const PADDING: u32 = 1;
+const PADDING: u32 = 3;
 const FACE_SIZE: u32 = 128;
 
 fn glyph_to_sdf<'a>(c: char, face: &'a ft::Face) -> glium::texture::RawImage2d<'a, u8> {

@@ -3,6 +3,8 @@ sdf-text
 
 Render text using Signed Distance Field technique.
 
+**Status: Experimental, no lib API**
+
 Examples:
 - `glyph.rs`
   - draw a glyph into texture and render it on a quad

@@ -109,16 +109,14 @@ impl Rasterizer {
         }
         for prf in &self.quadratic_profiles {
             if y >= prf.p0.y && y < prf.p2.y {
-                let (x_n, x_a) = quadratic_intersection(y, prf.p0, prf.p1, prf.p2);
-                assert!(x_n == 1);
-                crossings.push(OrientedCrossing::new(prf.dir, x_a[0]));
+                let x = quadratic_intersection(y, prf.p0, prf.p1, prf.p2);
+                crossings.push(OrientedCrossing::new(prf.dir, x));
             }
         }
         for prf in &self.cubic_profiles {
             if y >= prf.p0.y && y < prf.p3.y {
-                let (x_n, x_a) = cubic_intersection(y, prf.p0, prf.p1, prf.p2, prf.p3);
-                assert!(x_n == 1);
-                crossings.push(OrientedCrossing::new(prf.dir, x_a[0]));
+                let x = cubic_intersection(y, prf.p0, prf.p1, prf.p2, prf.p3);
+                crossings.push(OrientedCrossing::new(prf.dir, x));
             }
         }
         crossings.sort_by(|a, b| a.x.partial_cmp(&b.x).unwrap());
@@ -164,7 +162,6 @@ impl Rasterizer {
         let a = p3.y - 3.0*p2.y + 3.0*p1.y - p0.y;
         let b = 2.0*(p2.y - 2.0*p1.y + p0.y);
         let c = p1.y - p0.y;
-        //println!("cubic {:?} {:?} {:?} {:?}", p0,p1,p2,p3);
         let found_roots = roots::find_roots_quadratic(a, b, c);
         let extrema: Vec<f32> = found_roots.as_ref().iter().cloned()
             .filter(|&t| t.is_finite() && 0.0 < t && t < 1.0 ).collect();
