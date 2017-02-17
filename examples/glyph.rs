@@ -2,9 +2,10 @@
  * Keyboard controls:
  *   Escape             quit
  *   F1                 enable bilinear filtering
- *   F2                 enable SDF shader
+ *   F2                 select shader: alpha-tested  / outlined / straight
  *   F3                 render SDF / freetype monochrome texture
  *   numbers, letters   change displayed glyph
+ *   mouse wheel        zoom in/out
  */
 
 #[macro_use] extern crate glium;
@@ -15,7 +16,7 @@ use std::f32;
 use std::time;
 use std::env;
 use glium::{glutin, DisplayBuild, Surface};
-use glium::glutin::{Event, ElementState, VirtualKeyCode};
+use glium::glutin::{Event, ElementState, VirtualKeyCode, MouseScrollDelta, TouchPhase};
 
 use sdf_text::*;
 
@@ -69,12 +70,30 @@ const FRAGMENT_SHADER_SDF: &'static str = r#"
     uniform sampler2D tex;
 
     const vec3 c_inside = vec3(1.0, 1.0, 1.0);
+    const vec3 c_outside = vec3(0.0, 0.0, 0.0);
+
+    void main() {
+        float w = texture(tex, v_tex_coords).r;
+        float alpha = smoothstep(0.49, 0.50, w);
+        color = vec4(mix(c_outside, c_inside, alpha), 1.0);
+    }
+"#;
+
+const FRAGMENT_SHADER_OUTLINED: &'static str = r#"
+    #version 140
+
+    in vec2 v_tex_coords;
+    out vec4 color;
+
+    uniform sampler2D tex;
+
+    const vec3 c_inside = vec3(1.0, 1.0, 1.0);
     const vec3 c_outline = vec3(0.6, 0.0, 0.0);
     const vec3 c_outside = vec3(0.0, 0.0, 0.0);
 
     void main() {
         float w = texture(tex, v_tex_coords).r;
-        vec3 c_mixed = mix(c_outline, c_inside, smoothstep(0.50, 0.51, w));
+        vec3 c_mixed = mix(c_outline, c_inside, smoothstep(0.49, 0.50, w));
         float alpha = smoothstep(0.40, 0.41, w);
         color = vec4(mix(c_outside, c_mixed, alpha), 1.0);
     }
@@ -283,6 +302,14 @@ fn main() {
         },
         Err(other) => panic!(other),
     };
+    let program_outlined = match glium::Program::from_source(&display, VERTEX_SHADER, FRAGMENT_SHADER_OUTLINED, None) {
+        Ok(res) => res,
+        Err(glium::program::ProgramCreationError::CompilationError(err)) => {
+            println!("Shader compile error:\n{}", err);
+            return;
+        },
+        Err(other) => panic!(other),
+    };
     let mut program = &program_sdf;
     let params = glium::DrawParameters {
         backface_culling: glium::draw_parameters::BackfaceCullingMode::CullClockwise,
@@ -302,6 +329,7 @@ fn main() {
     let mut magnify_filter = glium::uniforms::MagnifySamplerFilter::Linear;
     let mut sdf = true;
     let mut shift_pressed = false;
+    let mut zoom = 2.0;
     loop {
         // Draw frame
         {
@@ -313,7 +341,6 @@ fn main() {
             let face_height = face_metrics.ascender - face_metrics.descender;
             let image_width = image_w as f32 / (face_height as f32 / 64.);
             let image_height = image_h as f32 / (face_height as f32 / 64.);
-            let zoom = 2.0;
             let projection = [
                 [zoom * image_width / aspect_ratio, 0.0, 0.0, 0.0],
                 [0.0, zoom * image_height, 0.0, 0.0],
@@ -359,6 +386,9 @@ fn main() {
                     if program as *const _ == &program_direct as *const _ {
                         println!("Shader: SDF");
                         program = &program_sdf;
+                    } else if program as *const _ == &program_sdf {
+                        println!("Shader: Outlined");
+                        program = &program_outlined;
                     } else {
                         println!("Shader: Direct");
                         program = &program_direct;
@@ -400,6 +430,15 @@ fn main() {
                     image_h = image.height;
                     texture = glium::texture::Texture2d::new(&display, image).unwrap();
                 },
+                Event::MouseWheel(delta, TouchPhase::Moved) => {
+                    match delta {
+                        MouseScrollDelta::LineDelta(_, y) => {
+                            zoom += y / 10.0;
+                            if zoom < 0.1 { zoom = 0.1; }
+                        }
+                        MouseScrollDelta::PixelDelta(_, _) => (),
+                    }
+                }
                 _ => (),
             }
         }

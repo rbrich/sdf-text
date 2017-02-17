@@ -77,11 +77,12 @@ impl CubicProfile {
  * Each crossing has X coordinate (crossed at scanline's Y coordinate)
  * and direction (curve crossed from left/right).
  * This gives us enough information to compute winding numbers (wn)
- * and this fill the spans according to filling rule.
+ * and fill the spans according to filling rule.
  *
- * For use with SDF, this has to give EXACT coordinates.
+ * For use with SDF, this has to give *exact* coordinates.
  * Any estimation will create visible artifacts, eg. if the distance vector
- * points inside while rasterizer evaluates the point as outside.
+ * points inside while rasterizer evaluates the point as outside, we get
+ * a blot at the place.
  */
 #[derive(Clone, Debug)]
 pub struct Rasterizer {
