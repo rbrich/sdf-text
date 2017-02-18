@@ -1,9 +1,8 @@
 /* Example of rendering single glyph
  * Keyboard controls:
  *   Escape             quit
- *   F1                 enable bilinear filtering
- *   F2                 select shader: alpha-tested  / outlined / straight
- *   F3                 render SDF / freetype monochrome texture
+ *   F1                 select shader: alpha-tested / outlined / direct-nearest / direct-linear
+ *   F2                 render texture: SDF / monochrome / freetype-monochrome
  *   numbers, letters   change displayed glyph
  *   mouse wheel        zoom in/out
  */
@@ -74,7 +73,8 @@ const FRAGMENT_SHADER_SDF: &'static str = r#"
 
     void main() {
         float w = texture(tex, v_tex_coords).r;
-        float alpha = smoothstep(0.49, 0.50, w);
+        float aaw = 0.5 * fwidth(w);
+        float alpha = smoothstep(0.50 - aaw, 0.50 + aaw, w);
         color = vec4(mix(c_outside, c_inside, alpha), 1.0);
     }
 "#;
@@ -93,14 +93,22 @@ const FRAGMENT_SHADER_OUTLINED: &'static str = r#"
 
     void main() {
         float w = texture(tex, v_tex_coords).r;
-        vec3 c_mixed = mix(c_outline, c_inside, smoothstep(0.49, 0.50, w));
-        float alpha = smoothstep(0.40, 0.41, w);
-        color = vec4(mix(c_outside, c_mixed, alpha), 1.0);
+        float aaw = 0.5 * fwidth(w);
+        float a1 = smoothstep(0.50 - aaw, 0.50 + aaw, w);
+        vec3 c_mixed = mix(c_outline, c_inside, a1);
+        float a2 = smoothstep(0.40 - aaw, 0.40 + aaw, w);
+        color = vec4(mix(c_outside, c_mixed, a2), 1.0);
     }
 "#;
 
 const PADDING: u32 = 3;
 const FACE_SIZE: u32 = 128;
+
+enum Renderer {
+    Sdf,
+    Monochrome,
+    FreeType,
+}
 
 fn glyph_to_sdf<'a>(c: char, face: &'a ft::Face) -> glium::texture::RawImage2d<'a, u8> {
     // Make SDF texture from the glyph
@@ -191,7 +199,6 @@ fn glyph_to_sdf<'a>(c: char, face: &'a ft::Face) -> glium::texture::RawImage2d<'
             if dist_min < 0. { dist_min = 0.; }
             if dist_min > 255. { dist_min = 255.; }
             buffer.push(dist_min as u8);
-//            buffer.push(inside as u8 * 255u8);
         }
     }
     face.set_pixel_sizes(FACE_SIZE, 0).unwrap();
@@ -208,6 +215,89 @@ fn glyph_to_sdf<'a>(c: char, face: &'a ft::Face) -> glium::texture::RawImage2d<'
 }
 
 fn glyph_to_image<'a>(c: char, face: &'a ft::Face) -> glium::texture::RawImage2d<'a, u8> {
+    // Make SDF texture from the glyph
+    let t_start = time::Instant::now();
+    face.set_pixel_sizes(face.em_size() as u32, 0).unwrap();
+    face.load_char(c as usize, ft::face::NO_HINTING).unwrap();
+    let outline = face.glyph().outline().unwrap();
+    let bbox = face.glyph().get_glyph().unwrap().get_cbox(0);
+    let pxsize = face.em_size() as f32 * 64. / FACE_SIZE as f32;
+    let xmin = (bbox.xMin as f32 / pxsize).round();
+    let ymin = (bbox.yMin as f32 / pxsize).round();
+    let xmax = (bbox.xMax as f32 / pxsize).round();
+    let ymax = (bbox.yMax as f32 / pxsize).round();
+    let w = ((xmax - xmin) + 2.0 * PADDING as f32) as u32;
+    let h = ((ymax - ymin) + 2.0 * PADDING as f32) as u32;
+    let origin = Vec2::new((xmin - PADDING as f32 +0.5),
+                           (ymin - PADDING as f32 +0.5));
+    let mut buffer = Vec::<u8>::with_capacity((w * h) as usize);
+    // Reversed contour orientation (counter-clockwise filled)
+    let outline_flags = face.glyph().raw().outline.flags;
+    let reverse_fill = (outline_flags & 0x4) == 0x4; // FT_OUTLINE_REVERSE_FILL;
+
+    // Feed the outline segments into rasterizer. These are later queried
+    // for scanline crossings and minimum distance from a point to the outline.
+    let mut rasterizer = Rasterizer::new();
+    for contour in outline.contours_iter() {
+        let mut p0 = vec2_from_ft(contour.start(), pxsize);
+        for curve in contour {
+            match curve {
+                ft::outline::Curve::Line(a) => {
+                    let p1 = vec2_from_ft(a, pxsize);
+                    rasterizer.push_line(p0, p1);
+                    p0 = p1;
+                }
+                ft::outline::Curve::Bezier2(a, b) => {
+                    let p1 = vec2_from_ft(a, pxsize);
+                    let p2 = vec2_from_ft(b, pxsize);
+                    rasterizer.push_bezier2(p0, p1, p2);
+                    p0 = p2;
+                }
+                ft::outline::Curve::Bezier3(a, b, c) => {
+                    let p1 = vec2_from_ft(a, pxsize);
+                    let p2 = vec2_from_ft(b, pxsize);
+                    let p3 = vec2_from_ft(c, pxsize);
+                    rasterizer.push_bezier3(p0, p1, p2, p3);
+                    p0 = p3;
+                }
+            };
+        }
+    }
+
+    for yr in (0..h).rev() {
+        let y = origin.y + yr as f32;
+
+        let ref mut crossings = rasterizer.scanline_crossings(y);
+
+        let mut crossings_idx = 0;
+        let mut wn = 0i32;
+        for xr in 0 .. w {
+            let x = origin.x + xr as f32;
+
+            // Is the point inside curve?
+            while crossings.len() > crossings_idx && crossings[crossings_idx].x <= x {
+                wn += crossings[crossings_idx].dir as i32;
+                crossings_idx += 1;
+            }
+            let inside = if reverse_fill { wn < 0 } else { wn > 0 };
+
+            buffer.push(inside as u8 * 255u8);
+        }
+    }
+    face.set_pixel_sizes(FACE_SIZE, 0).unwrap();
+    let t_end = time::Instant::now();
+    let d = t_end.duration_since(t_start);
+    println!("Render: size {}x{} in {}s (monochrome)",
+             w, h, d.as_secs() as f32 + d.subsec_nanos() as f32 / 1e9);
+    glium::texture::RawImage2d {
+        data: buffer.into(),
+        width: w as u32,
+        height: h as u32,
+        format: glium::texture::ClientFormat::U8,
+    }
+}
+
+fn glyph_to_image_freetype<'a>(c: char, face: &'a ft::Face) -> glium::texture::RawImage2d<'a, u8> {
     // Make texture from the glyph
     let t_start = time::Instant::now();
     face.set_pixel_sizes(FACE_SIZE, 0).unwrap();
@@ -302,7 +392,7 @@ fn main() {
     let mut image_h = image.height;
     let mut texture = glium::texture::Texture2d::new(&display, image).unwrap();
     let mut magnify_filter = glium::uniforms::MagnifySamplerFilter::Linear;
-    let mut sdf = true;
+    let mut renderer = Renderer::Sdf;
     let mut shift_pressed = false;
     let mut zoom = 2.0;
     loop {
@@ -349,32 +439,30 @@ fn main() {
                 Event::Closed => return,
                 Event::KeyboardInput(ElementState::Pressed, _, Some(VirtualKeyCode::Escape)) => return,
                 Event::KeyboardInput(ElementState::Pressed, _, Some(VirtualKeyCode::F1)) => {
-                    if magnify_filter == glium::uniforms::MagnifySamplerFilter::Nearest {
-                        println!("Magnify filter: Linear");
+                    if program as *const _ == &program_sdf {
+                        // SDF -> Outlined
+                        println!("Shader: Outlined; Filter: Linear");
+                        program = &program_outlined;
+                    } else if program as *const _ == &program_outlined as *const _ {
+                        // Outlined -> Direct nearest
+                        println!("Shader: Direct; Filter: Nearest");
+                        program = &program_direct;
+                        magnify_filter = glium::uniforms::MagnifySamplerFilter::Nearest;
+                    } else if magnify_filter == glium::uniforms::MagnifySamplerFilter::Nearest {
+                        // Direct nearest -> linear
+                        println!("Shader: Direct; Filter: Linear");
                         magnify_filter = glium::uniforms::MagnifySamplerFilter::Linear;
                     } else {
-                        println!("Magnify filter: Nearest");
-                        magnify_filter = glium::uniforms::MagnifySamplerFilter::Nearest;
+                        // Direct linear -> SDF
+                        println!("Shader: SDF; Filter: Linear");
+                        program = &program_sdf;
                     }
                 },
                 Event::KeyboardInput(ElementState::Pressed, _, Some(VirtualKeyCode::F2)) => {
-                    if program as *const _ == &program_direct as *const _ {
-                        println!("Shader: SDF");
-                        program = &program_sdf;
-                    } else if program as *const _ == &program_sdf {
-                        println!("Shader: Outlined");
-                        program = &program_outlined;
-                    } else {
-                        println!("Shader: Direct");
-                        program = &program_direct;
-                    }
-                },
-                Event::KeyboardInput(ElementState::Pressed, _, Some(VirtualKeyCode::F3)) => {
-                    sdf = !sdf;
-                    let image = if sdf {
-                        glyph_to_sdf(glyph_char, &face)
-                    } else {
-                        glyph_to_image(glyph_char, &face)
+                    let image = match renderer {
+                        Renderer::FreeType => { renderer = Renderer::Sdf; glyph_to_sdf(glyph_char, &face) }
+                        Renderer::Sdf => { renderer = Renderer::Monochrome; glyph_to_image(glyph_char, &face) }
+                        Renderer::Monochrome => { renderer = Renderer::FreeType; glyph_to_image_freetype(glyph_char, &face) }
                     };
                     image_w = image.width;
                     image_h = image.height;
@@ -396,10 +484,10 @@ fn main() {
                         } else {
                             '&'
                         };
-                    let image = if sdf {
-                        glyph_to_sdf(glyph_char, &face)
-                    } else {
-                        glyph_to_image(glyph_char, &face)
+                    let image = match renderer {
+                        Renderer::Sdf => glyph_to_sdf(glyph_char, &face),
+                        Renderer::Monochrome => glyph_to_image(glyph_char, &face),
+                        Renderer::FreeType => glyph_to_image_freetype(glyph_char, &face),
                     };
                     image_w = image.width;
                     image_h = image.height;
@@ -408,8 +496,8 @@ fn main() {
                 Event::MouseWheel(delta, TouchPhase::Moved) => {
                     match delta {
                         MouseScrollDelta::LineDelta(_, y) => {
-                            zoom += y / 10.0;
-                            if zoom < 0.1 { zoom = 0.1; }
+                            zoom += y * zoom / 4.0;
+                            if zoom < 0.01 { zoom = 0.01; }
                         }
                         MouseScrollDelta::PixelDelta(_, _) => (),
                     }
