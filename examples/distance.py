@@ -61,13 +61,13 @@ def cubic_bezier(t, p0, p1, p2, p3):
     return tc*tc*tc*p0 + 3*tc*tc*t*p1 + 3*tc*t*t*p2 + t*t*t*p3
 
 
-def quadratic_derivate(t, p0, p1, p2):
+def quadratic_derivative(t, p0, p1, p2):
     p0, p1, p2 = map(np.array, [p0, p1, p2])
     tc = 1 - t
     return 2*tc*(p1 - p0) + 2*t*(p2 - p1)
 
 
-def cubic_derivate(t, p0, p1, p2, p3):
+def cubic_derivative(t, p0, p1, p2, p3):
     p0, p1, p2, p3 = map(np.array, [p0, p1, p2, p3])
     tc = 1 - t
     return 3*tc*tc*(p1 - p0) + 6*tc*t*(p2 - p1) + 3*t*t*(p3 - p2)
@@ -119,7 +119,7 @@ def quadratic_distance(p, p0, p1, p2):
             x_point = x
             x_t = t
     # Determine sign
-    direction = quadratic_derivate(x_t, p0, p1, p2)
+    direction = quadratic_derivative(x_t, p0, p1, p2)
     side = la.det([p - x_point, direction])
     dist = math.copysign(dist_min, side)
     return dist, x_point, x_t
@@ -140,7 +140,7 @@ def cubic_distance(p, p0, p1, p2, p3):
     """
     p, p0, p1, p2, p3 = map(np.array, [p, p0, p1, p2, p3])
     def f(t):
-        return (cubic_bezier(t, p0, p1, p2, p3) - p).dot(cubic_derivate(t, p0, p1, p2, p3))
+        return (cubic_bezier(t, p0, p1, p2, p3) - p).dot(cubic_derivative(t, p0, p1, p2, p3))
     # Partition t to `steps` intervals and solve the equation for each interval
     steps = 15
     bounds = [t / steps for t in range(0, steps + 1)]
@@ -164,7 +164,7 @@ def cubic_distance(p, p0, p1, p2, p3):
             x_point = x
             x_t = t
     # Determine sign
-    direction = cubic_derivate(x_t, p0, p1, p2, p3)
+    direction = cubic_derivative(x_t, p0, p1, p2, p3)
     side = la.det([p - x_point, direction])
     dist = math.copysign(dist_min, side)
     return dist, x_point, x_t

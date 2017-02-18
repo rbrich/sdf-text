@@ -6,5 +6,4 @@ authors = ["Radek Brich <radek.brich@devl.cz>"]
 [dependencies]
 freetype-rs = { git = "https://github.com/rbrich/freetype-rs" }
 glium = "*"
-cgmath = "*"
 roots = "0.0.2"
