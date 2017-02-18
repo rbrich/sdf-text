@@ -123,9 +123,10 @@ fn glyph_to_sdf<'a>(c: char, face: &'a ft::Face) -> glium::texture::RawImage2d<'
     let outline_flags = face.glyph().raw().outline.flags;
     let reverse_fill = (outline_flags & 0x4) == 0x4; // FT_OUTLINE_REVERSE_FILL;
 
-    // Find intersection points for the scan line
-    // (edge crossings algorithm)
+    // Feed the outline segments into rasterizer. These are later queried
+    // for scanline crossings and minimum distance from a point to the outline.
     let mut rasterizer = Rasterizer::new();
+    let mut mindist = OutlineDistance::new();
     for contour in outline.contours_iter() {
         let mut p0 = vec2_from_ft(contour.start(), pxsize);
         for curve in contour {
@@ -133,12 +134,14 @@ fn glyph_to_sdf<'a>(c: char, face: &'a ft::Face) -> glium::texture::RawImage2d<'
                 ft::outline::Curve::Line(a) => {
                     let p1 = vec2_from_ft(a, pxsize);
                     rasterizer.push_line(p0, p1);
+                    mindist.push_line(p0, p1);
                     p0 = p1;
                 }
                 ft::outline::Curve::Bezier2(a, b) => {
                     let p1 = vec2_from_ft(a, pxsize);
                     let p2 = vec2_from_ft(b, pxsize);
                     rasterizer.push_bezier2(p0, p1, p2);
+                    mindist.push_bezier2(p0, p1, p2);
                     p0 = p2;
                 }
                 ft::outline::Curve::Bezier3(a, b, c) => {
@@ -146,6 +149,7 @@ fn glyph_to_sdf<'a>(c: char, face: &'a ft::Face) -> glium::texture::RawImage2d<'
                     let p2 = vec2_from_ft(b, pxsize);
                     let p3 = vec2_from_ft(c, pxsize);
                     rasterizer.push_bezier3(p0, p1, p2, p3);
+                    mindist.push_bezier3(p0, p1, p2, p3);
                     p0 = p3;
                 }
             };
@@ -163,7 +167,9 @@ fn glyph_to_sdf<'a>(c: char, face: &'a ft::Face) -> glium::texture::RawImage2d<'
         for xr in 0 .. w {
             let x = origin.x + xr as f32;
             let mp = Vec2::new(x, y);
-            let mut dist_min = f32::INFINITY;
+
+            // Compute the distance
+            let mut dist_min = mindist.distance(mp);
 
             // Is the point inside curve?
             while crossings.len() > crossings_idx && crossings[crossings_idx].x <= x {
@@ -171,37 +177,6 @@ fn glyph_to_sdf<'a>(c: char, face: &'a ft::Face) -> glium::texture::RawImage2d<'
                 crossings_idx += 1;
             }
             let inside = if reverse_fill { wn < 0 } else { wn > 0 };
-
-            for contour in outline.contours_iter() {
-                let mut p0 = vec2_from_ft(contour.start(), pxsize);
-                for curve in contour {
-                    let dist;
-                    match curve {
-                        ft::outline::Curve::Line(a) => {
-                            let p1 = vec2_from_ft(a, pxsize);
-                            dist = line_distance(mp, p0, p1);
-                            p0 = p1;
-                        }
-                        ft::outline::Curve::Bezier2(a, b) => {
-                            let p1 = vec2_from_ft(a, pxsize);
-                            let p2 = vec2_from_ft(b, pxsize);
-                            dist = quadratic_distance(mp, p0, p1, p2);
-                            p0 = p2;
-                        }
-                        ft::outline::Curve::Bezier3(a, b, c) => {
-                            let p1 = vec2_from_ft(a, pxsize);
-                            let p2 = vec2_from_ft(b, pxsize);
-                            let p3 = vec2_from_ft(c, pxsize);
-                            dist = cubic_distance(mp, p0, p1, p2, p3);
-                            p0 = p3;
-                        }
-                    };
-                    if dist < dist_min {
-                        dist_min = dist;
-                    }
-                }
-            }
-
             if inside {
                 dist_min = -dist_min;
             }

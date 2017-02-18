@@ -2,6 +2,7 @@ use std;
 use std::f32;
 use roots;
 
+/// 2D vector / point
 
 #[derive(Copy, Clone, Debug)]
 pub struct Vec2 {
@@ -58,7 +59,7 @@ const EPS: f32 = 5e-5;
 // has exactly one root in range 0..1. There might be other roots out
 // of this range - these are ignored.
 
-pub fn solve_quadratic_for_single_t(a2: f32, a1: f32, a0: f32) -> f32 {
+fn solve_quadratic_for_single_t(a2: f32, a1: f32, a0: f32) -> f32 {
     for &t in roots::find_roots_quadratic(a2, a1, a0).as_ref() {
         if t.is_finite() && t >= 0.0 && t <= 1.0 {
             return t;
@@ -67,7 +68,7 @@ pub fn solve_quadratic_for_single_t(a2: f32, a1: f32, a0: f32) -> f32 {
     panic!("quadratic root not found");
 }
 
-pub fn solve_cubic_for_single_t(a3: f32, a2: f32, a1: f32, a0: f32) -> f32 {
+fn solve_cubic_for_single_t(a3: f32, a2: f32, a1: f32, a0: f32) -> f32 {
     if a3.abs() < EPS {
         return solve_quadratic_for_single_t(a2, a1, a0);
     }
@@ -79,18 +80,33 @@ pub fn solve_cubic_for_single_t(a3: f32, a2: f32, a1: f32, a0: f32) -> f32 {
     panic!("cubic root not found");
 }
 
-// Line segment
-// ------------
-// B(t) = p0 + t * (p1 - p0); t = 0..1
+/// Linear segment
+///
+/// B(t) = p0 + t * (p1 - p0); t = 0..1
 
-// Distance to a line segment from a point
-pub fn line_distance(p: Vec2, p0: Vec2, p1: Vec2) -> f32 {
-    let m = p - p0;
-    let a = p1 - p0;
-    let t = (m.dot(a) / a.dot(a))
-            .max(0.0).min(1.0);
-    let x = p0 + t * a;
-    (x - p).magnitude()
+#[derive(Clone, Debug)]
+pub struct LinearSegment {
+    pub p0: Vec2,
+    pub p1: Vec2,
+}
+
+impl LinearSegment {
+    pub fn new(p0: Vec2, p1: Vec2) -> Self {
+        LinearSegment {
+            p0: p0,
+            p1: p1,
+        }
+    }
+
+    // Minimal distance from a point to the line segment
+    pub fn distance(&self, p: Vec2) -> f32 {
+        let m = p - self.p0;
+        let a = self.p1 - self.p0;
+        let t = (m.dot(a) / a.dot(a))
+                .max(0.0).min(1.0);
+        let x = self.p0 + t * a;
+        (x - p).magnitude()
+    }
 }
 
 // Intersection between horizontal scanline at Y and line segment
@@ -99,54 +115,71 @@ pub fn line_intersection(y: f32, p0: Vec2, p1: Vec2) -> f32 {
     p0.x + t * (p1.x - p0.x)
 }
 
+/// Quadratic (conic) segment
+///
+/// B(t) = (1-t)^2 * p0 + 2*(1-t)*t * p1 + t^2 * p2; t = 0..1
 
-// Quadratic (conic) segment
-// -------------------------
-// B(t) = (1-t)^2 * p0 + 2*(1-t)*t * p1 + t^2 * p2; t = 0..1
-
-fn quadratic_bezier(t: f32, p0: Vec2, p1: Vec2, p2: Vec2) -> Vec2 {
-    let tc = 1.0 - t;
-    tc*tc*p0 + 2.0*tc*t*p1 + t*t*p2
+#[derive(Clone, Debug)]
+pub struct QuadraticSegment {
+    pub p0: Vec2,
+    pub p1: Vec2,
+    pub p2: Vec2,
 }
-/*
-fn quadratic_derivate(t: f32, p0: Vec2, p1: Vec2, p2: Vec2) -> Vec2 {
-    let tc = 1.0 - t;
-    2.0*tc*(p1 - p0) + 2.0*t*(p2 - p1)
-}
-*/
 
-// Distance to quadratic bézier curve from a point
-pub fn quadratic_distance(p: Vec2, p0: Vec2, p1: Vec2, p2: Vec2) -> f32 {
-    let m = p0 - p;
-    let a = p1 - p0;
-    let b = p2 - p1 - a;
-    // Cubic equation coefficients
-    let a3 = b.dot(b);
-    let a2 = 3.0*a.dot(b);
-    let a1 = 2.0*a.dot(a) + m.dot(b);
-    let a0 = m.dot(a);
-    // Find roots of the equation (1 or 3 real roots)
-    let mut candidates = Vec::<Vec2>::with_capacity(5);
-    for &t in roots::find_roots_cubic(a3, a2, a1, a0).as_ref() {
-        // Drop roots outside of curve interval
-        if t >= 0.0 && t <= 1.0 {
-            // Compute point on the curve for each t
-            candidates.push(quadratic_bezier(t, p0, p1, p2));
+impl QuadraticSegment {
+    pub fn new(p0: Vec2, p1: Vec2, p2: Vec2) -> Self {
+        QuadraticSegment {
+            p0: p0,
+            p1: p1,
+            p2: p2,
         }
     }
-    // Add end points
-    candidates.push(p0);
-    candidates.push(p2);
-    // Find least distance point from candidates
-    let mut dist_min = f32::INFINITY;
-    for x in candidates.into_iter() {
-        // Actually, it's distance squared, but that's okay for comparison
-        let dist = (x - p).magnitude2();
-        if dist < dist_min {
-            dist_min = dist;
-        }
+
+    // Evaluate point on bézier curve at `t`
+    pub fn eval_point(&self, t: f32) -> Vec2 {
+        let tc = 1.0 - t;
+        tc*tc*self.p0 + 2.0*tc*t*self.p1 + t*t*self.p2
     }
-    dist_min.sqrt()
+
+    // Evaluate tangent vector at `t` (first derivative)
+    pub fn eval_tangent(&self, t: f32) -> Vec2 {
+        let tc = 1.0 - t;
+        2.0*tc*(self.p1 - self.p0) + 2.0*t*(self.p2 - self.p1)
+    }
+
+    // Minimal distance from a point to the quadratic bézier segment
+    pub fn distance(&self, p: Vec2) -> f32 {
+        let m = self.p0 - p;
+        let a = self.p1 - self.p0;
+        let b = self.p2 - self.p1 - a;
+        // Cubic equation coefficients
+        let a3 = b.dot(b);
+        let a2 = 3.0*a.dot(b);
+        let a1 = 2.0*a.dot(a) + m.dot(b);
+        let a0 = m.dot(a);
+        // Find roots of the equation (1 or 3 real roots)
+        let mut candidates = Vec::<Vec2>::with_capacity(5);
+        for &t in roots::find_roots_cubic(a3, a2, a1, a0).as_ref() {
+            // Drop roots outside of curve interval
+            if t >= 0.0 && t <= 1.0 {
+                // Compute point on the curve for each t
+                candidates.push(self.eval_point(t));
+            }
+        }
+        // Add end points
+        candidates.push(self.p0);
+        candidates.push(self.p2);
+        // Find least distance point from candidates
+        let mut dist_min = f32::INFINITY;
+        for x in candidates.into_iter() {
+            // Actually, it's distance squared, but that's okay for comparison
+            let dist = (x - p).magnitude2();
+            if dist < dist_min {
+                dist_min = dist;
+            }
+        }
+        dist_min.sqrt()
+    }
 }
 
 // Find intersection between monotonic (growing) quadratic bezier and Y scanline
@@ -161,50 +194,73 @@ pub fn quadratic_intersection(y: f32, p0: Vec2, p1: Vec2, p2: Vec2) -> f32 {
 }
 
 
-// Cubic segment
-// -------------
-// B(t) = (1-t)^3*p0 + 3*(1-t)^2*t*p1 + 3*(1-t)*t^2*p2 + t^3*p3; t = 0..1
+/// Cubic bézier segment
+///
+/// B(t) = (1-t)^3*p0 + 3*(1-t)^2*t*p1 + 3*(1-t)*t^2*p2 + t^3*p3; t = 0..1
 
-fn cubic_bezier(t: f32, p0: Vec2, p1: Vec2, p2: Vec2, p3: Vec2) -> Vec2 {
-    let tc = 1.0 - t;
-    tc*tc*tc*p0 + 3.0*tc*tc*t*p1 + 3.0*tc*t*t*p2 + t*t*t*p3
+#[derive(Clone, Debug)]
+pub struct CubicSegment {
+    pub p0: Vec2,
+    pub p1: Vec2,
+    pub p2: Vec2,
+    pub p3: Vec2,
 }
 
-fn cubic_derivate(t: f32, p0: Vec2, p1: Vec2, p2: Vec2, p3: Vec2) -> Vec2 {
-    let tc = 1.0 - t;
-    3.0*tc*tc*(p1 - p0) + 6.0*tc*t*(p2 - p1) + 3.0*t*t*(p3 - p2)
-}
+impl CubicSegment {
+    pub fn new(p0: Vec2, p1: Vec2, p2: Vec2, p3: Vec2) -> Self {
+        CubicSegment {
+            p0: p0,
+            p1: p1,
+            p2: p2,
+            p3: p3,
+        }
+    }
 
-// Distance to quadratic bézier curve from a point
-pub fn cubic_distance(p: Vec2, p0: Vec2, p1: Vec2, p2: Vec2, p3: Vec2) -> f32 {
-    let f = |t| { (cubic_bezier(t, p0, p1, p2, p3) - p).dot(cubic_derivate(t, p0, p1, p2, p3)) };
-    // Find roots of the equation (up to 5 real roots)
-    let mut candidates = Vec::<Vec2>::with_capacity(7);
-    let convergency = roots::SimpleConvergency { eps:2e-5f32, max_iter:100 };
-    let steps = 15;
-    let mut a = 0.0;
-    for t in 1 .. steps + 1 {
-        let b = t as f32 / steps as f32;
-        match roots::find_root_brent(a, b, &f, &convergency) {
-            // Compute point on the curve for each t
-            Ok(t) => candidates.push(cubic_bezier(t, p0, p1, p2, p3)),
-            Err(_) => (),
-        }
-        a = b;
+    // Evaluate point on bézier curve at `t`
+    pub fn eval_point(&self, t: f32) -> Vec2 {
+        let tc = 1.0 - t;
+        tc*tc*tc*self.p0 + 3.0*tc*tc*t*self.p1 + 3.0*tc*t*t*self.p2 + t*t*t*self.p3
     }
-    // Add end points
-    candidates.push(p0);
-    candidates.push(p3);
-    // Find least distance point from candidates
-    let mut dist_min = f32::INFINITY;
-    for x in candidates.into_iter() {
-        // Actually, it's distance squared, but that's okay for the comparison
-        let dist = (x - p).magnitude2();
-        if dist < dist_min {
-            dist_min = dist;
-        }
+
+    // Evaluate tangent vector at `t` (first derivative)
+    pub fn eval_tangent(&self, t: f32) -> Vec2 {
+        let tc = 1.0 - t;
+        3.0*tc*tc*(self.p1 - self.p0) + 6.0*tc*t*(self.p2 - self.p1) + 3.0*t*t*(self.p3 - self.p2)
     }
-    dist_min.sqrt()
+
+    // Minimal distance from a point to the cubic bézier segment
+    pub fn distance(&self, p: Vec2) -> f32 {
+        let f = |t| {
+            (self.eval_point(t) - p).dot(self.eval_tangent(t))
+        };
+        // Find roots of the equation (up to 5 real roots)
+        let mut candidates = Vec::<Vec2>::with_capacity(7);
+        let convergency = roots::SimpleConvergency { eps:2e-5f32, max_iter:100 };
+        let steps = 15;
+        let mut a = 0.0;
+        for t in 1 .. steps + 1 {
+            let b = t as f32 / steps as f32;
+            match roots::find_root_brent(a, b, &f, &convergency) {
+                // Compute point on the curve for each t
+                Ok(t) => candidates.push(self.eval_point(t)),
+                Err(_) => (),
+            }
+            a = b;
+        }
+        // Add end points
+        candidates.push(self.p0);
+        candidates.push(self.p3);
+        // Find least distance point from candidates
+        let mut dist_min = f32::INFINITY;
+        for x in candidates.into_iter() {
+            // Actually, it's distance squared, but that's okay for the comparison
+            let dist = (x - p).magnitude2();
+            if dist < dist_min {
+                dist_min = dist;
+            }
+        }
+        dist_min.sqrt()
+    }
 }
 
 // Find intersection between monotonic (growing) cubic bezier and Y scanline
