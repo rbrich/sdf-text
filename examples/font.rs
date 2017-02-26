@@ -1,7 +1,15 @@
+/* Render font texture
+ *
+ * Controls:
+ *   Escape             quit
+ *   mouse wheel        zoom in/out
+ */
+
 #[macro_use] extern crate glium;
 extern crate sdf_text;
 
 use std::env;
+use std::time;
 
 use glium::{glutin, DisplayBuild, Surface};
 use glium::glutin::{Event, ElementState, VirtualKeyCode, MouseScrollDelta, TouchPhase};
@@ -56,8 +64,14 @@ fn main() {
     let char_list = args.next().unwrap_or(printable_ascii.to_string());
 
     // Build font texture (OpenGL not needed yet)
+    let face_size = 128;
     let mut font = Font::new(1024);
-    font.build_from_file(font_name, 0, 128, 3, char_list.as_str());
+    let t_start = time::Instant::now();
+    font.build_from_file(font_name, 0, face_size, 3, char_list.as_str());
+    let t_end = time::Instant::now();
+    let d = t_end.duration_since(t_start);
+    println!("Render font texture: face size {} in {}s",
+             face_size, d.as_secs() as f32 + d.subsec_nanos() as f32 / 1e9);
 
     // Create OpenGL window
     let display = glutin::WindowBuilder::new().build_glium().unwrap();

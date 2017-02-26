@@ -1,5 +1,6 @@
-/* Example of rendering single glyph
- * Keyboard controls:
+/* Render single glyph
+ *
+ * Controls:
  *   Escape             quit
  *   F1                 select shader: alpha-tested / outlined / direct-nearest / direct-linear
  *   F2                 render texture: SDF / monochrome / freetype-monochrome
