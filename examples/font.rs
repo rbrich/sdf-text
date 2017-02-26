@@ -46,10 +46,14 @@ const FRAGMENT_SHADER: &'static str = r#"
 "#;
 
 fn main() {
+    // Generate default table of characters (all printable ASCII chars)
+    let printable_ascii: Vec<u8> = (0x20u8 .. 0x7Eu8).collect();
+    let printable_ascii = std::str::from_utf8(&printable_ascii).unwrap();
+
     // Parse args
     let mut args = env::args();
     let font_name = args.nth(1).unwrap_or("assets/FreeSans.ttf".to_string());
-    let char_list = args.next().unwrap_or("0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz".to_string());
+    let char_list = args.next().unwrap_or(printable_ascii.to_string());
 
     // Build font texture (OpenGL not needed yet)
     let mut font = Font::new(1024);
