@@ -19,10 +19,6 @@ use glium::glutin::{Event, ElementState, VirtualKeyCode, MouseScrollDelta, Touch
 
 use sdf_text::*;
 
-pub fn vec2_from_ft(p: ft::Vector, unit: f32) -> Vec2 {
-    Vec2 { x: p.x as f32 / unit, y: p.y as f32 / unit }
-}
-
 #[derive(Copy, Clone)]
 struct Vertex {
     position: [f32; 2],
@@ -102,6 +98,7 @@ const FRAGMENT_SHADER_OUTLINED: &'static str = r#"
 "#;
 
 const PADDING: u32 = 3;
+const SHIFT: f32 = 0.5;
 const FACE_SIZE: u32 = 128;
 
 enum Renderer {
@@ -118,14 +115,14 @@ fn glyph_to_sdf<'a>(c: char, face: &'a ft::Face) -> glium::texture::RawImage2d<'
     let outline = face.glyph().outline().unwrap();
     let bbox = face.glyph().get_glyph().unwrap().get_cbox(0);
     let pxsize = face.em_size() as f32 * 64. / FACE_SIZE as f32;
-    let xmin = (bbox.xMin as f32 / pxsize).round();
-    let ymin = (bbox.yMin as f32 / pxsize).round();
-    let xmax = (bbox.xMax as f32 / pxsize).round();
-    let ymax = (bbox.yMax as f32 / pxsize).round();
+    let xmin = (bbox.xMin as f32 / pxsize + SHIFT).floor();
+    let ymin = (bbox.yMin as f32 / pxsize + SHIFT).floor();
+    let xmax = (bbox.xMax as f32 / pxsize + SHIFT).floor();
+    let ymax = (bbox.yMax as f32 / pxsize + SHIFT).floor();
     let w = ((xmax - xmin) + 2.0 * PADDING as f32) as u32;
     let h = ((ymax - ymin) + 2.0 * PADDING as f32) as u32;
-    let origin = Vec2::new((xmin - PADDING as f32 +0.5),
-                           (ymin - PADDING as f32 +0.5));
+    let origin = Vec2::new((xmin - PADDING as f32 + SHIFT),
+                           (ymin - PADDING as f32 + SHIFT));
     let mut buffer = Vec::<u8>::with_capacity((w * h) as usize);
     // Reversed contour orientation (counter-clockwise filled)
     let outline_flags = face.glyph().raw().outline.flags;
@@ -160,7 +157,7 @@ fn glyph_to_sdf<'a>(c: char, face: &'a ft::Face) -> glium::texture::RawImage2d<'
                     mindist.push_bezier3(p0, p1, p2, p3);
                     p0 = p3;
                 }
-            };
+            }
         }
     }
 
@@ -222,14 +219,14 @@ fn glyph_to_image<'a>(c: char, face: &'a ft::Face) -> glium::texture::RawImage2d
     let outline = face.glyph().outline().unwrap();
     let bbox = face.glyph().get_glyph().unwrap().get_cbox(0);
     let pxsize = face.em_size() as f32 * 64. / FACE_SIZE as f32;
-    let xmin = (bbox.xMin as f32 / pxsize).round();
-    let ymin = (bbox.yMin as f32 / pxsize).round();
-    let xmax = (bbox.xMax as f32 / pxsize).round();
-    let ymax = (bbox.yMax as f32 / pxsize).round();
+    let xmin = (bbox.xMin as f32 / pxsize + SHIFT).floor();
+    let ymin = (bbox.yMin as f32 / pxsize + SHIFT).floor();
+    let xmax = (bbox.xMax as f32 / pxsize + SHIFT).floor();
+    let ymax = (bbox.yMax as f32 / pxsize + SHIFT).floor();
     let w = ((xmax - xmin) + 2.0 * PADDING as f32) as u32;
     let h = ((ymax - ymin) + 2.0 * PADDING as f32) as u32;
-    let origin = Vec2::new((xmin - PADDING as f32 +0.5),
-                           (ymin - PADDING as f32 +0.5));
+    let origin = Vec2::new((xmin - PADDING as f32 + SHIFT ),
+                           (ymin - PADDING as f32 + SHIFT));
     let mut buffer = Vec::<u8>::with_capacity((w * h) as usize);
     // Reversed contour orientation (counter-clockwise filled)
     let outline_flags = face.glyph().raw().outline.flags;

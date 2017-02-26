@@ -7,6 +7,8 @@ Signed distance field font rendering:
 - https://github.com/Chlumsky/msdfgen
   - https://dspace.cvut.cz/bitstream/handle/10467/62770/F8-DP-2015-Chlumsky-Viktor-thesis.pdf
 - http://stackoverflow.com/questions/5262951/what-is-state-of-the-art-for-text-rendering-in-opengl-as-of-version-4-1#5278471
+- https://www.mapbox.com/blog/text-signed-distance-fields/
+- https://lambdacube3d.wordpress.com/2014/11/12/playing-around-with-font-rendering/
 
 Bézier distance (nearest point on the curve):
 - https://en.wikipedia.org/wiki/Bézier_curve
@@ -37,6 +39,8 @@ Font rasterization:
 - Rust:
   - https://medium.com/@raphlinus/inside-the-fastest-font-renderer-in-the-world-75ae5270c445
   - http://pcwalton.github.io/blog/2017/02/14/pathfinder/
+- other techniques:
+  - http://wdobbie.com/post/gpu-text-rendering-with-vector-textures/
 
 Point in polygon:
 - https://en.wikipedia.org/wiki/Point_in_polygon

@@ -7,3 +7,4 @@ authors = ["Radek Brich <radek.brich@devl.cz>"]
 freetype-rs = { git = "https://github.com/rbrich/freetype-rs" }
 glium = "*"
 roots = "0.0.2"
+rect_packer = "*"
