@@ -18,14 +18,14 @@ pub struct Glyph {
     pub y: usize,
     pub width: usize,
     pub height: usize,
-    //
+    // metrics
     pub xmin: isize,
     pub ymin: isize,
 }
 
 impl Glyph {
-    pub fn from_face<'a>(face: &'a ft::Face, face_size: usize,
-                         padding: usize) -> Self {
+    pub fn from_face(face: &ft::Face, face_size: usize,
+                     padding: usize) -> Self {
         let bbox = face.glyph().get_glyph().unwrap().get_cbox(0);
         let unit_size = face.em_size() as f32 * 64. / face_size as f32;
         let xmin = (bbox.xMin as f32 / unit_size + 0.5).floor();
@@ -42,8 +42,8 @@ impl Glyph {
         }
     }
 
-    pub fn render_sdf<'a>(&self, face: &'a ft::Face, face_size: usize,
-                          buffer: &mut [u8], pitch: usize) {
+    pub fn render_sdf(&self, face: &ft::Face, face_size: usize,
+                      buffer: &mut [u8], pitch: usize) {
         let outline = face.glyph().outline().unwrap();
         let outline_flags = face.glyph().raw().outline.flags;
         let unit_size = face.em_size() as f32 * 64. / face_size as f32;
@@ -134,7 +134,7 @@ pub struct Font {
     pub width: usize,
     pub height: usize,
     // metrics for glyphs contained in the texture
-    glyphs: HashMap<char, Glyph>,
+    pub glyphs: HashMap<char, Glyph>,
 }
 
 impl Font {
@@ -155,7 +155,7 @@ impl Font {
         self.build_from_face(&face, face_size, padding, chars)
     }
 
-    pub fn build_from_face<'a>(&mut self, face: &'a ft::Face, face_size: usize, padding: usize, chars: &str) {
+    pub fn build_from_face(&mut self, face: &ft::Face, face_size: usize, padding: usize, chars: &str) {
         let packer_config = rect_packer::Config {
             width: self.width as i32,
             height: self.height as i32,
