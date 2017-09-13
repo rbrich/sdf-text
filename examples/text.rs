@@ -10,8 +10,8 @@ extern crate sdf_text;
 
 use std::env;
 
-use glium::{glutin, DisplayBuild, Surface};
-use glium::glutin::{Event, ElementState, VirtualKeyCode, MouseScrollDelta, TouchPhase};
+use glium::{glutin, Surface};
+use glium::glutin::{Event, WindowEvent, ElementState, VirtualKeyCode, MouseScrollDelta, TouchPhase};
 
 use sdf_text::*;
 
@@ -77,7 +77,10 @@ fn main() {
     font.build_from_file(font_name, 0, face_size, 3, char_list.as_str());
 
     // Create OpenGL window
-    let display = glutin::WindowBuilder::new().build_glium().unwrap();
+    let mut events_loop = glium::glutin::EventsLoop::new();
+    let window = glutin::WindowBuilder::new();
+    let context = glium::glutin::ContextBuilder::new();
+    let display = glium::Display::new(window, context, &events_loop).unwrap();
 
     // Add a quad for each char into vertex buffer
     let num_chars = input_text.chars().count();
@@ -132,7 +135,8 @@ fn main() {
     let texture = glium::texture::Texture2d::new(&display, image).unwrap();
 
     let mut zoom = 2.0;
-    loop {
+    let mut quit = false;
+    while !quit {
         // Draw frame
         {
             let mut target = display.draw();
@@ -164,21 +168,34 @@ fn main() {
             target.finish().unwrap();
         }
         // Handle events
-        for event in display.poll_events() {
+        events_loop.poll_events(|event|
             match event {
-                Event::Closed => return,
-                Event::KeyboardInput(ElementState::Pressed, _, Some(VirtualKeyCode::Escape)) => return,
-                Event::MouseWheel(delta, TouchPhase::Moved) => {
-                    match delta {
-                        MouseScrollDelta::LineDelta(_, y) => {
-                            zoom += y * zoom / 4.0;
-                            if zoom < 0.01 { zoom = 0.01; }
+                Event::WindowEvent { event, .. } => match event {
+                    WindowEvent::Closed => quit = true,
+                    WindowEvent::KeyboardInput { input, .. } => {
+                        if input.state == ElementState::Pressed {
+                            match input.virtual_keycode {
+                                Some(VirtualKeyCode::Escape) => quit = true,
+                                _ => ()
+                            }
                         }
-                        MouseScrollDelta::PixelDelta(_, _) => (),
-                    }
-                }
-                _ => (),
+                    },
+                    WindowEvent::MouseWheel { delta, phase: TouchPhase::Moved, .. } => {
+                        match delta {
+                            MouseScrollDelta::LineDelta(_, y) => {
+                                zoom += y * zoom / 4.0;
+                                if zoom < 0.01 { zoom = 0.01; }
+                            }
+                            MouseScrollDelta::PixelDelta(_, y) => {
+                                zoom += y * zoom / 40.0;
+                                if zoom < 0.01 { zoom = 0.01; }
+                            }
+                        }
+                    },
+                    _ => ()
+                },
+                _ => ()
             }
-        }
+        );
     }
 }

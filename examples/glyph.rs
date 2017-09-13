@@ -15,8 +15,8 @@ extern crate sdf_text;
 use std::f32;
 use std::time;
 use std::env;
-use glium::{glutin, DisplayBuild, Surface};
-use glium::glutin::{Event, ElementState, VirtualKeyCode, MouseScrollDelta, TouchPhase};
+use glium::{glutin, Surface};
+use glium::glutin::{Event, WindowEvent, ElementState, VirtualKeyCode, MouseScrollDelta, TouchPhase};
 
 use sdf_text::*;
 
@@ -336,8 +336,10 @@ fn main() {
     let text_to_show = args.next().unwrap_or("0".to_string());
 
     // Create OpenGL window
-    let display = glutin::WindowBuilder::new()
-        .build_glium().unwrap();
+    let mut events_loop = glium::glutin::EventsLoop::new();
+    let window = glutin::WindowBuilder::new();
+    let context = glium::glutin::ContextBuilder::new();
+    let display = glium::Display::new(window, context, &events_loop).unwrap();
 
     // Prepare quad
     let vertex1 = Vertex { position: [ -0.5, -0.5], tex_coords: [0.0, 1.0] };
@@ -393,13 +395,14 @@ fn main() {
     let mut renderer = Renderer::Sdf;
     let mut shift_pressed = false;
     let mut zoom = 2.0;
-    loop {
+    let mut quit = false;
+    while !quit {
         // Draw frame
         {
-            let mut target = display.draw();
+            let mut frame = display.draw();
 
             // Prepare projection matrix
-            let (width, height) = target.get_dimensions();
+            let (width, height) = frame.get_dimensions();
             let aspect_ratio = width as f32 / height as f32;
             let face_height = face_metrics.ascender - face_metrics.descender;
             let image_width = image_w as f32 / (face_height as f32 / 64.);
@@ -425,83 +428,102 @@ fn main() {
                         .magnify_filter(magnify_filter)
                         .wrap_function(glium::uniforms::SamplerWrapFunction::Clamp);
 
-            target.clear_color(0.0, 0.0, 0.1, 1.0);
-            target.draw(&quad_buffer, &quad_indices, program,
+            frame.clear_color(0.0, 0.0, 0.1, 1.0);
+            frame.draw(&quad_buffer, &quad_indices, program,
                         &uniform! { projection: projection, model: model, tex: texture_sampler, },
                         &params).unwrap();
-            target.finish().unwrap();
+            frame.finish().unwrap();
         }
         // Handle events
-        for event in display.poll_events() {
+        events_loop.poll_events(|event|
             match event {
-                Event::Closed => return,
-                Event::KeyboardInput(ElementState::Pressed, _, Some(VirtualKeyCode::Escape)) => return,
-                Event::KeyboardInput(ElementState::Pressed, _, Some(VirtualKeyCode::F1)) => {
-                    if program as *const _ == &program_sdf {
-                        // SDF -> Outlined
-                        println!("Shader: Outlined; Filter: Linear");
-                        program = &program_outlined;
-                    } else if program as *const _ == &program_outlined as *const _ {
-                        // Outlined -> Direct nearest
-                        println!("Shader: Direct; Filter: Nearest");
-                        program = &program_direct;
-                        magnify_filter = glium::uniforms::MagnifySamplerFilter::Nearest;
-                    } else if magnify_filter == glium::uniforms::MagnifySamplerFilter::Nearest {
-                        // Direct nearest -> linear
-                        println!("Shader: Direct; Filter: Linear");
-                        magnify_filter = glium::uniforms::MagnifySamplerFilter::Linear;
-                    } else {
-                        // Direct linear -> SDF
-                        println!("Shader: SDF; Filter: Linear");
-                        program = &program_sdf;
-                    }
-                },
-                Event::KeyboardInput(ElementState::Pressed, _, Some(VirtualKeyCode::F2)) => {
-                    let image = match renderer {
-                        Renderer::FreeType => { renderer = Renderer::Sdf; glyph_to_sdf(glyph_char, &face) }
-                        Renderer::Sdf => { renderer = Renderer::Monochrome; glyph_to_image(glyph_char, &face) }
-                        Renderer::Monochrome => { renderer = Renderer::FreeType; glyph_to_image_freetype(glyph_char, &face) }
-                    };
-                    image_w = image.width;
-                    image_h = image.height;
-                    texture = glium::texture::Texture2d::new(&display, image).unwrap();
-                }
-                Event::KeyboardInput(state, _, Some(VirtualKeyCode::LShift)) |
-                Event::KeyboardInput(state, _, Some(VirtualKeyCode::RShift))=> {
-                    shift_pressed = state == ElementState::Pressed;
-                }
-                Event::KeyboardInput(ElementState::Pressed, _, Some(key)) => {
-                    let key = key as u8;
-                    glyph_char =
-                        if key>= VirtualKeyCode::Key1 as u8 && key <= VirtualKeyCode::Key9 as u8 {
-                            ('1' as u8 + (key - VirtualKeyCode::Key1 as u8)) as char
-                        } else if key == VirtualKeyCode::Key0 as u8 {
-                            '0'
-                        } else if key >= VirtualKeyCode::A as u8 && key <= VirtualKeyCode::Z as u8 {
-                            (if shift_pressed {'A'} else {'a'} as u8 + (key - VirtualKeyCode::A as u8)) as char
+                Event::WindowEvent { event, .. } => match event {
+                    WindowEvent::Closed => quit = true,
+                    WindowEvent::KeyboardInput { input, .. } => {
+                        if input.state == ElementState::Pressed {
+                            match input.virtual_keycode {
+                                Some(VirtualKeyCode::Escape) => quit = true,
+                                Some(VirtualKeyCode::F1) => {
+                                    if program as *const _ == &program_sdf {
+                                        // SDF -> Outlined
+                                        println!("Shader: Outlined; Filter: Linear");
+                                        program = &program_outlined;
+                                    } else if program as *const _ == &program_outlined as *const _ {
+                                        // Outlined -> Direct nearest
+                                        println!("Shader: Direct; Filter: Nearest");
+                                        program = &program_direct;
+                                        magnify_filter = glium::uniforms::MagnifySamplerFilter::Nearest;
+                                    } else if magnify_filter == glium::uniforms::MagnifySamplerFilter::Nearest {
+                                        // Direct nearest -> linear
+                                        println!("Shader: Direct; Filter: Linear");
+                                        magnify_filter = glium::uniforms::MagnifySamplerFilter::Linear;
+                                    } else {
+                                        // Direct linear -> SDF
+                                        println!("Shader: SDF; Filter: Linear");
+                                        program = &program_sdf;
+                                    }
+                                },
+                                Some(VirtualKeyCode::F2) => {
+                                    let image = match renderer {
+                                        Renderer::FreeType => { renderer = Renderer::Sdf; glyph_to_sdf(glyph_char, &face) }
+                                        Renderer::Sdf => { renderer = Renderer::Monochrome; glyph_to_image(glyph_char, &face) }
+                                        Renderer::Monochrome => { renderer = Renderer::FreeType; glyph_to_image_freetype(glyph_char, &face) }
+                                    };
+                                    image_w = image.width;
+                                    image_h = image.height;
+                                    texture = glium::texture::Texture2d::new(&display, image).unwrap();
+                                },
+                                Some(VirtualKeyCode::LShift) | Some(VirtualKeyCode::RShift) => {
+                                    shift_pressed = true;
+                                },
+                                Some(key) => {
+                                    let key = key as u8;
+                                    glyph_char =
+                                        if key>= VirtualKeyCode::Key1 as u8 && key <= VirtualKeyCode::Key9 as u8 {
+                                            ('1' as u8 + (key - VirtualKeyCode::Key1 as u8)) as char
+                                        } else if key == VirtualKeyCode::Key0 as u8 {
+                                            '0'
+                                        } else if key >= VirtualKeyCode::A as u8 && key <= VirtualKeyCode::Z as u8 {
+                                            (if shift_pressed {'A'} else {'a'} as u8 + (key - VirtualKeyCode::A as u8)) as char
+                                        } else {
+                                            '&'
+                                        };
+                                    let image = match renderer {
+                                        Renderer::Sdf => glyph_to_sdf(glyph_char, &face),
+                                        Renderer::Monochrome => glyph_to_image(glyph_char, &face),
+                                        Renderer::FreeType => glyph_to_image_freetype(glyph_char, &face),
+                                    };
+                                    image_w = image.width;
+                                    image_h = image.height;
+                                    texture = glium::texture::Texture2d::new(&display, image).unwrap();
+                                },
+                                _ => ()
+                            };
                         } else {
-                            '&'
-                        };
-                    let image = match renderer {
-                        Renderer::Sdf => glyph_to_sdf(glyph_char, &face),
-                        Renderer::Monochrome => glyph_to_image(glyph_char, &face),
-                        Renderer::FreeType => glyph_to_image_freetype(glyph_char, &face),
-                    };
-                    image_w = image.width;
-                    image_h = image.height;
-                    texture = glium::texture::Texture2d::new(&display, image).unwrap();
-                },
-                Event::MouseWheel(delta, TouchPhase::Moved) => {
-                    match delta {
-                        MouseScrollDelta::LineDelta(_, y) => {
-                            zoom += y * zoom / 4.0;
-                            if zoom < 0.01 { zoom = 0.01; }
+                            match input.virtual_keycode {
+                                Some(VirtualKeyCode::LShift) | Some(VirtualKeyCode::RShift) => {
+                                    shift_pressed = false;
+                                },
+                                _ => ()
+                            }
                         }
-                        MouseScrollDelta::PixelDelta(_, _) => (),
-                    }
-                }
-                _ => (),
+                    },
+                    WindowEvent::MouseWheel { delta, phase: TouchPhase::Moved, .. } => {
+                        match delta {
+                            MouseScrollDelta::LineDelta(_, y) => {
+                                zoom += y * zoom / 4.0;
+                                if zoom < 0.01 { zoom = 0.01; }
+                            }
+                            MouseScrollDelta::PixelDelta(_, y) => {
+                                zoom += y * zoom / 40.0;
+                                if zoom < 0.01 { zoom = 0.01; }
+                            }
+                        }
+                    },
+                    _ => ()
+                },
+                _ => ()
             }
-        }
+        );
     }
 }
